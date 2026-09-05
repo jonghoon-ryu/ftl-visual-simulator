@@ -31,6 +31,8 @@ namespace MQSimEngine {
 		Sim_Object* GetObject(sim_object_id_type object_id);
 		void RemoveObject(Sim_Object* obj);
 		void Start_simulation();
+		void Setup_simulation();
+		bool Run_next_event_group();
 		void Stop_simulation();
 		bool Has_started();
 		bool Is_integrated_execution_mode();
