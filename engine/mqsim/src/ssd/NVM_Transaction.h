@@ -18,6 +18,12 @@ namespace SSD_Components
 	public:
 		NVM_Transaction(stream_id_type stream_id, Transaction_Source_Type source, Transaction_Type type, User_Request* user_request, IO_Flow_Priority_Class::Priority priority_class) :
 			Stream_id(stream_id), Source(source), Type(type), UserIORequest(user_request), Priority_class(priority_class), Issue_time(Simulator->Time()), STAT_execution_time(INVALID_TIME), STAT_transfer_time(INVALID_TIME) {}
+		// Deleted polymorphically (e.g. NVM_PHY_ONFI::broadcastTransactionServicedSignal
+		// deletes through an NVM_Transaction_Flash*) - without a virtual destructor this
+		// is undefined behavior: wrong dtor runs and the wrong size reaches operator
+		// delete. Confirmed via ASan (new-delete-type-mismatch) and observed to corrupt
+		// state specifically under Emscripten's allocator, not glibc's.
+		virtual ~NVM_Transaction() {}
 		stream_id_type Stream_id;
 		Transaction_Source_Type Source;
 		Transaction_Type Type;

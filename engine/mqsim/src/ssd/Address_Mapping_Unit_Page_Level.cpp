@@ -1684,54 +1684,59 @@ namespace SSD_Components
 
 			_my_instance->ftl->TSU->Prepare_for_transaction_submit();
 			MVPN_type mvpn = (MVPN_type)((NVM_Transaction_Flash_RD*)transaction)->Content;
-			std::multimap<MVPN_type, LPA_type>::iterator it = _my_instance->domains[transaction->Stream_id]->ArrivingMappingEntries.find(mvpn);
-			while (it != _my_instance->domains[transaction->Stream_id]->ArrivingMappingEntries.end()) {
-				if ((*it).first == mvpn) {
-					LPA_type lpa = (*it).second;
+			// NOTE: multimap::find() is only guaranteed to return *an* element
+			// with a matching key when duplicates exist, not necessarily the
+			// first one in the equal-key range (cppreference: "if there are
+			// several elements with key, any of them may be returned"). The
+			// original code here did find() + a forward-only walk that
+			// breaks on the first non-matching key, which silently drops any
+			// equal-key entries that happen to sort before whatever find()
+			// returned - this was observed to differ between libstdc++
+			// (native) and libc++ (Emscripten/WASM), permanently orphaning
+			// some pending writes under WASM. equal_range() is the portable,
+			// standard-guaranteed way to get the *entire* matching range.
+			auto range = _my_instance->domains[transaction->Stream_id]->ArrivingMappingEntries.equal_range(mvpn);
+			for (auto it = range.first; it != range.second; ) {
+				LPA_type lpa = (*it).second;
 
-					//This mapping entry may arrived due to an update read request that is required for merging new and old mapping entries.
-					//If that is the case, we should not insert it into CMT
-					if (_my_instance->domains[transaction->Stream_id]->CMT->Is_slot_reserved_for_lpn_and_waiting(transaction->Stream_id, lpa)) {
-						_my_instance->domains[transaction->Stream_id]->CMT->Insert_new_mapping_info(transaction->Stream_id, lpa,
-							_my_instance->domains[transaction->Stream_id]->GlobalMappingTable[lpa].PPA,
-							_my_instance->domains[transaction->Stream_id]->GlobalMappingTable[lpa].WrittenStateBitmap);
-						auto it2 = _my_instance->domains[transaction->Stream_id]->Waiting_unmapped_read_transactions.find(lpa);
-						while (it2 != _my_instance->domains[transaction->Stream_id]->Waiting_unmapped_read_transactions.end() &&
-							(*it2).first == lpa) {
-							if (_my_instance->is_lpa_locked_for_gc(transaction->Stream_id, lpa)) {
-								_my_instance->manage_user_transaction_facing_barrier(it2->second);
-							} else {
-								if (_my_instance->translate_lpa_to_ppa(transaction->Stream_id, it2->second)) {
-									_my_instance->ftl->TSU->Submit_transaction(it2->second);
-								}
-								else {
-									_my_instance->mange_unsuccessful_translation(it2->second);
-								}
+				//This mapping entry may arrived due to an update read request that is required for merging new and old mapping entries.
+				//If that is the case, we should not insert it into CMT
+				if (_my_instance->domains[transaction->Stream_id]->CMT->Is_slot_reserved_for_lpn_and_waiting(transaction->Stream_id, lpa)) {
+					_my_instance->domains[transaction->Stream_id]->CMT->Insert_new_mapping_info(transaction->Stream_id, lpa,
+						_my_instance->domains[transaction->Stream_id]->GlobalMappingTable[lpa].PPA,
+						_my_instance->domains[transaction->Stream_id]->GlobalMappingTable[lpa].WrittenStateBitmap);
+					auto read_range = _my_instance->domains[transaction->Stream_id]->Waiting_unmapped_read_transactions.equal_range(lpa);
+					for (auto it2 = read_range.first; it2 != read_range.second; ) {
+						if (_my_instance->is_lpa_locked_for_gc(transaction->Stream_id, lpa)) {
+							_my_instance->manage_user_transaction_facing_barrier(it2->second);
+						} else {
+							if (_my_instance->translate_lpa_to_ppa(transaction->Stream_id, it2->second)) {
+								_my_instance->ftl->TSU->Submit_transaction(it2->second);
 							}
-							_my_instance->domains[transaction->Stream_id]->Waiting_unmapped_read_transactions.erase(it2++);
-						}
-						it2 = _my_instance->domains[transaction->Stream_id]->Waiting_unmapped_program_transactions.find(lpa);
-						while (it2 != _my_instance->domains[transaction->Stream_id]->Waiting_unmapped_program_transactions.end() &&
-							(*it2).first == lpa) {
-							if (_my_instance->is_lpa_locked_for_gc(transaction->Stream_id, lpa)) {
-								_my_instance->manage_user_transaction_facing_barrier(it2->second);
-							} else {
-								if (_my_instance->translate_lpa_to_ppa(transaction->Stream_id, it2->second)) {
-									_my_instance->ftl->TSU->Submit_transaction(it2->second);
-									if (((NVM_Transaction_Flash_WR*)it2->second)->RelatedRead != NULL) {
-										_my_instance->ftl->TSU->Submit_transaction(((NVM_Transaction_Flash_WR*)it2->second)->RelatedRead);
-									}
-								} else {
-									_my_instance->mange_unsuccessful_translation(it2->second);
-								}
+							else {
+								_my_instance->mange_unsuccessful_translation(it2->second);
 							}
-							_my_instance->domains[transaction->Stream_id]->Waiting_unmapped_program_transactions.erase(it2++);
 						}
+						it2 = _my_instance->domains[transaction->Stream_id]->Waiting_unmapped_read_transactions.erase(it2);
 					}
-				} else {
-					break;
+					auto prog_range = _my_instance->domains[transaction->Stream_id]->Waiting_unmapped_program_transactions.equal_range(lpa);
+					for (auto it2 = prog_range.first; it2 != prog_range.second; ) {
+						if (_my_instance->is_lpa_locked_for_gc(transaction->Stream_id, lpa)) {
+							_my_instance->manage_user_transaction_facing_barrier(it2->second);
+						} else {
+							if (_my_instance->translate_lpa_to_ppa(transaction->Stream_id, it2->second)) {
+								_my_instance->ftl->TSU->Submit_transaction(it2->second);
+								if (((NVM_Transaction_Flash_WR*)it2->second)->RelatedRead != NULL) {
+									_my_instance->ftl->TSU->Submit_transaction(((NVM_Transaction_Flash_WR*)it2->second)->RelatedRead);
+								}
+							} else {
+								_my_instance->mange_unsuccessful_translation(it2->second);
+							}
+						}
+						it2 = _my_instance->domains[transaction->Stream_id]->Waiting_unmapped_program_transactions.erase(it2);
+					}
 				}
-				_my_instance->domains[transaction->Stream_id]->ArrivingMappingEntries.erase(it++);
+				it = _my_instance->domains[transaction->Stream_id]->ArrivingMappingEntries.erase(it);
 			}
 			_my_instance->ftl->TSU->Schedule();
 		}
