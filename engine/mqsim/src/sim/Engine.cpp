@@ -52,8 +52,11 @@ namespace MQSimEngine
 		_ObjectList.erase(it);
 	}
 
-	/// This is the main method of simulator which starts simulation process.
-	void Engine::Start_simulation()
+	/// One-time preparation before any event is processed: trigger setup,
+	/// config validation, and each object's Start_simulation() hook. Must be
+	/// called exactly once per Reset()'d simulation, before the first call to
+	/// Run_next_event_group().
+	void Engine::Setup_simulation()
 	{
 		started = true;
 
@@ -70,33 +73,49 @@ namespace MQSimEngine
 			++obj) {
 			obj->second->Validate_simulation_config();
 		}
-		
+
 		for (std::unordered_map<sim_object_id_type, Sim_Object*>::iterator obj = _ObjectList.begin();
 			obj != _ObjectList.end();
 			++obj) {
 			obj->second->Start_simulation();
 		}
-		
-		Sim_Event* ev = NULL;
-		while (true) {
-			if (_EventList->Count == 0 || stop) {
-				break;
+	}
+
+	/// Processes exactly one event-group (every event sharing the single
+	/// next-nearest fire time, same as one iteration of the old
+	/// Start_simulation() loop body) and returns whether the queue still has
+	/// events left to process. This is the step primitive that a UI's
+	/// step()/run(n) controls call repeatedly; Start_simulation() below is
+	/// just this called in a loop.
+	bool Engine::Run_next_event_group()
+	{
+		if (_EventList->Count == 0 || stop) {
+			return false;
+		}
+
+		EventTreeNode* minNode = _EventList->Get_min_node();
+		Sim_Event* ev = minNode->FirstSimEvent;
+
+		_sim_time = ev->Fire_time;
+
+		while (ev != NULL) {
+			if(!ev->Ignore) {
+				ev->Target_sim_object->Execute_simulator_event(ev);
 			}
+			Sim_Event* consumed_event = ev;
+			ev = ev->Next_event;
+			delete consumed_event;
+		}
+		_EventList->Remove(minNode);
 
-			EventTreeNode* minNode = _EventList->Get_min_node();
-			ev = minNode->FirstSimEvent;
+		return true;
+	}
 
-			_sim_time = ev->Fire_time;
-
-			while (ev != NULL) {
-				if(!ev->Ignore) {
-					ev->Target_sim_object->Execute_simulator_event(ev);
-				}
-				Sim_Event* consumed_event = ev;
-				ev = ev->Next_event;
-				delete consumed_event;
-			}
-			_EventList->Remove(minNode);
+	/// This is the main method of simulator which starts simulation process.
+	void Engine::Start_simulation()
+	{
+		Setup_simulation();
+		while (Run_next_event_group()) {
 		}
 	}
 
