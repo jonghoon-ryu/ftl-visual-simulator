@@ -86,14 +86,23 @@ namespace Utils
 				}
 			}
 
+			// a[i][j], u[j] and m are all < ~2^32 (MRG32k3a-style moduli), so
+			// their product can exceed INT64_MAX and overflow signed int64_t
+			// (undefined behavior - was observed to diverge between native
+			// and WASM builds because the actual wraparound result of signed
+			// overflow is unspecified and compiler/platform-dependent).
+			// (m-1)^2 fits safely within uint64_t, so accumulating in
+			// unsigned arithmetic gives the mathematically correct,
+			// platform-independent result instead.
 			static void mv_mul(int64_t a[][3], int64_t* u, int64_t* v, int64_t m)
 			{
 				int64_t w[3];
 				for (int i = 0; i <= 2; i++) {
-					w[i] = 0;
+					uint64_t acc = 0;
 					for (int j = 0; j <= 2; j++) {
-						w[i] = (a[i][j] * u[j] + w[i]) % m;
+						acc = (acc + (uint64_t)a[i][j] * (uint64_t)u[j]) % (uint64_t)m;
 					}
+					w[i] = (int64_t)acc;
 				}
 				v_copy(w, v);
 			}
@@ -104,10 +113,11 @@ namespace Utils
 
 				for (int i = 0; i <= 2; i++) {
 					for (int j = 0; j <= 2; j++) {
-						d[i][j] = 0;
+						uint64_t acc = 0;
 						for (int k = 0; k <= 2; k++) {
-							d[i][j] = (a[i][k] * b[k][j] + d[i][j]) % m;
+							acc = (acc + (uint64_t)a[i][k] * (uint64_t)b[k][j]) % (uint64_t)m;
 						}
+						d[i][j] = (int64_t)acc;
 					}
 				}
 				m_copy(d, c);
