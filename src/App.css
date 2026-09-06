@@ -233,6 +233,12 @@
   font-weight: 500;
 }
 
+.mini-table-empty {
+  font-size: 11px;
+  color: #7d8296;
+  padding: 10px 0 2px;
+}
+
 .param-row {
   margin-bottom: 10px;
 }
