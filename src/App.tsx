@@ -21,11 +21,9 @@ function App() {
   const [activeId, setActiveId] = useState<PresetId>('mapping');
   const active = presets.find((p) => p.id === activeId) ?? presets[0];
   const engine = useMqsimEngine(mappingBasicSsdConfigXml, mappingBasicWorkloadXml);
-  const events = useMqsimEvents(engine.module);
+  const events = useMqsimEvents(engine.subscribeEvents, engine.ready);
   const playback = useSimulationPlayback({
-    module: engine.module,
-    ssdConfigXml: mappingBasicSsdConfigXml,
-    workloadXml: mappingBasicWorkloadXml,
+    engine,
     onRefresh: engine.refresh,
     onRestart: events.reset,
   });

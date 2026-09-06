@@ -46,7 +46,7 @@ em++ -std=c++17 -fexceptions -O2 \
 	-sMODULARIZE=1 \
 	-sEXPORT_ES6=1 \
 	-sEXPORT_NAME=createMQSimModule \
-	-sENVIRONMENT=web,node \
+	-sENVIRONMENT=web,worker,node \
 	-o "$OUT_DIR/mqsim.mjs"
 # -sMAXIMUM_MEMORY=4GB: WASM32's actual hard ceiling - large-occupancy
 # configs can legitimately need close to 2GB (verified against
