@@ -4,6 +4,7 @@
 #include "GC_and_WL_Unit_Page_Level.h"
 #include "Flash_Block_Manager.h"
 #include "FTL.h"
+#include "../exec/Simulation_Events.h"
 
 namespace SSD_Components
 {
@@ -152,6 +153,7 @@ namespace SSD_Components
 			//If there are ongoing requests targeting the candidate block, the gc execution should be postponed
 			if (block_manager->Can_execute_gc_wl(gc_candidate_address)) {
 				Stats::Total_gc_executions++;
+				Simulation_Events::Notify_gc_started(pbke->Blocks[gc_candidate_block_id].Stream_id, gc_candidate_address);
 				tsu->Prepare_for_transaction_submit();
 
 				NVM_Transaction_Flash_ER* gc_erase_tr = new NVM_Transaction_Flash_ER(Transaction_Source_Type::GC_WL, pbke->Blocks[gc_candidate_block_id].Stream_id, gc_candidate_address);
@@ -163,6 +165,7 @@ namespace SSD_Components
 						if (block_manager->Is_page_valid(block, pageID)) {
 							Stats::Total_page_movements_for_gc++;
 							gc_candidate_address.PageID = pageID;
+							Simulation_Events::Notify_gc_page_migrated(block->Stream_id, gc_candidate_address);
 							if (use_copyback) {
 								gc_write = new NVM_Transaction_Flash_WR(Transaction_Source_Type::GC_WL, block->Stream_id, sector_no_per_page * SECTOR_SIZE_IN_BYTE,
 									NO_LPA, address_mapping_unit->Convert_address_to_ppa(gc_candidate_address), NULL, 0, NULL, 0, INVALID_TIME_STAMP);
