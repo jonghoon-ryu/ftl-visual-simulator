@@ -20,10 +20,24 @@ interface Props {
 }
 
 export function FlashGrid({ blocks, caption }: Props) {
+  // All blocks share the same page count in every preset - take it from
+  // the first one so the header row lines up with each column below.
+  const pageCount = blocks[0]?.pages.length ?? 0;
+
   return (
     <div className="sim-grid-panel">
       <div className="sim-panel-title">Flash Array — Block × Page</div>
       <div className="sim-caption">{caption}</div>
+      <div className="grid-row grid-header-row">
+        <div className="row-label" />
+        <div className="row-cells">
+          {Array.from({ length: pageCount }, (_, i) => (
+            <div key={i} className="cell cell-header">
+              {i}
+            </div>
+          ))}
+        </div>
+      </div>
       {blocks.map((block) => (
         <div className="grid-row" key={block.label}>
           <div className="row-label">{block.label}</div>

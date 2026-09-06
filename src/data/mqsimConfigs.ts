@@ -23,8 +23,12 @@ export interface SsdParams {
 }
 
 export const DEFAULT_MAPPING_PARAMS: SsdParams = {
-  pageCapacityBytes: 8192,
-  blockNoPerPlane: 32,
+  pageCapacityBytes: 4096,
+  // 16 is ParamPanel's MIN_BLOCK_NO_PER_PLANE (the safety margin above the
+  // 13-block deadlock threshold - see that constant's comment) - defaulting
+  // to it directly rather than some larger "roomier" value keeps the grid
+  // small by default, matching this preset's beginner-facing goal.
+  blockNoPerPlane: 16,
   pageNoPerBlock: 16,
   overprovisioningRatio: 0.07,
   gcExecThreshold: 0.05,
@@ -202,11 +206,13 @@ export const DEFAULT_GC_PARAMS: SsdParams = {
 //   nothing for GC to usefully collect even once the free-block threshold
 //   is crossed). See the reconfigure-crash-bug writeup's companion
 //   investigation for how this was found.
-// - Stop_Time raised enough to let ~10 GC executions happen (measured via
-//   a native-CLI step-count harness: this config takes ~850k event-groups
-//   to reach Stop_Time, hence the much higher default playback speed
-//   App.tsx uses for this preset - see useSimulationPlayback's
-//   ticksMultiplier).
+// - Stop_Time raised enough to let GC actually fire (measured via a
+//   native-CLI step-count harness: this config takes ~950k event-groups to
+//   reach Stop_Time, hence the much higher default playback speed App.tsx
+//   uses for this preset - see useSimulationPlayback's ticksMultiplier).
+//   How many times GC executes depends on DEFAULT_MAPPING_PARAMS' block
+//   count/page size (smaller geometry = less occupancy pressure = fewer
+//   GC runs before Stop_Time) - re-measure if those defaults change again.
 export function buildGcWorkloadXml(params: SsdParams, workload: WorkloadParams = DEFAULT_WORKLOAD_PARAMS): string {
   return `<?xml version="1.0" encoding="us-ascii"?>
 <MQSim_IO_Scenarios>
