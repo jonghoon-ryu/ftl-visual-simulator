@@ -55,6 +55,22 @@ namespace SSD_Components
 	
 	Data_Cache_Manager_Flash_Advanced::~Data_Cache_Manager_Flash_Advanced()
 	{
+		// waiting_user_requests_queue_for_dram_free_slot only ever *parks*
+		// User_Request pointers while DRAM is full - Process_dram_execution_
+		// list() (below) always releases them back via .erase(), never
+		// delete, because this class never owns them: the request was
+		// `new`'d by Request_Fetch_Unit_NVMe/SATA and is simultaneously
+		// tracked in Input_Stream_NVMe/SATA's own Waiting_user_requests -
+		// that list's destructor is what actually deletes it once it's
+		// still outstanding at teardown. Deleting it here too (as this
+		// destructor used to) is a double-free/use-after-free whenever a
+		// scenario is torn down with a write still parked in this queue -
+		// impossible to hit via the CLI (main.cpp always drains to
+		// completion via Run_to_completion() before finalizing), but
+		// reachable from an interactive/step-driven UI that can pause or
+		// reconfigure mid-run. Full writeup, including how this was found
+		// and verified with AddressSanitizer:
+		// https://jonghoon-ryu.github.io/ftl-visual-simulator/reference/reconfigure-crash-bug/
 		switch (sharing_mode)
 		{
 			case SSD_Components::Cache_Sharing_Mode::SHARED:
@@ -64,9 +80,6 @@ namespace SSD_Components
 					delete dram_execution_queue[0].front();
 					dram_execution_queue[0].pop();
 				}
-				for (auto &req : waiting_user_requests_queue_for_dram_free_slot[0]) {
-					delete req;
-				}
 				break;
 			}
 			case SSD_Components::Cache_Sharing_Mode::EQUAL_PARTITIONING:
@@ -75,9 +88,6 @@ namespace SSD_Components
 					while (dram_execution_queue[i].size()) {
 						delete dram_execution_queue[i].front();
 						dram_execution_queue[i].pop();
-					}
-					for (auto &req : waiting_user_requests_queue_for_dram_free_slot[i]) {
-						delete req;
 					}
 				}
 				break;
