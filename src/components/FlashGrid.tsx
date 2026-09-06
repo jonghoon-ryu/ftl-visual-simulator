@@ -7,14 +7,19 @@ const LABELS: Record<string, string> = {
   moving: 'GC 로 이동 중',
 };
 
+// Always all four, in a fixed order - a beginner needs to see what every
+// color means before they've ever pressed play (a preset that hasn't run
+// yet only has 'free' pages, so deriving the legend from what's currently
+// on screen would hide the other three until something happens to show
+// them).
+const ALL_STATES: (keyof typeof LABELS)[] = ['valid', 'invalid', 'moving', 'free'];
+
 interface Props {
   blocks: BlockRow[];
   caption: string;
 }
 
 export function FlashGrid({ blocks, caption }: Props) {
-  const usedStates = new Set(blocks.flatMap((b) => b.pages.map((p) => p.state)));
-
   return (
     <div className="sim-grid-panel">
       <div className="sim-panel-title">Flash Array — Block × Page</div>
@@ -36,7 +41,7 @@ export function FlashGrid({ blocks, caption }: Props) {
         </div>
       ))}
       <div className="sim-legend">
-        {Array.from(usedStates).map((state) => (
+        {ALL_STATES.map((state) => (
           <span key={state}>
             <span className={`swatch ${state}`} />
             {LABELS[state]}
