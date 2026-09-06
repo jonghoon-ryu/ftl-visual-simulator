@@ -508,7 +508,11 @@ namespace SSD_Components
 				// the eviction call sites in this file).
 				ppa = domain->GlobalMappingTable[lpa].PPA;
 			}
-			snapshot.push_back(Mapping_Snapshot_Entry{ lpa, ppa, ppa != NO_PPA });
+			Mapping_Snapshot_Entry row{ lpa, ppa, ppa != NO_PPA, NVM::FlashMemory::Physical_Page_Address() };
+			if (row.Mapped) {
+				Convert_ppa_to_address(ppa, row.Address);
+			}
+			snapshot.push_back(row);
 		}
 		return snapshot;
 	}

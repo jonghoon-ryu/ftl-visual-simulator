@@ -10,12 +10,18 @@ import { WearLevelingView } from './components/WearLevelingView';
 import { presets } from './data/presets';
 import { mappingBasicSsdConfigXml, mappingBasicWorkloadXml } from './data/mqsimConfigs';
 import { useMqsimEngine } from './hooks/useMqsimEngine';
+import { toMappingRows } from './lib/mqsimMapping';
 import type { PresetId } from './types';
 
 function App() {
   const [activeId, setActiveId] = useState<PresetId>('mapping');
   const active = presets.find((p) => p.id === activeId) ?? presets[0];
   const engine = useMqsimEngine(mappingBasicSsdConfigXml, mappingBasicWorkloadXml);
+
+  // Only the 'mapping' preset is wired to the real WASM engine so far (its
+  // config/workload is what useMqsimEngine above loads) - the other presets
+  // still show static mock data until their own Session 7 slices land.
+  const mappingRows = activeId === 'mapping' && engine.ready ? toMappingRows(engine.state) : active.mapping;
 
   return (
     <div className="sim-app">
@@ -27,6 +33,19 @@ function App() {
         </p>
         <p style={{ fontSize: '0.85em', opacity: 0.8 }}>
           엔진 상태 (개발용): {engine.error ? `오류 - ${engine.error}` : engine.ready ? '준비 완료' : '로딩 중...'}
+          {activeId === 'mapping' && engine.ready && (
+            <>
+              {' '}
+              <button
+                onClick={() => {
+                  engine.module?.run(50);
+                  engine.refresh();
+                }}
+              >
+                50 스텝 실행 (Slice 4 이전 임시 확인용)
+              </button>
+            </>
+          )}
         </p>
       </header>
       <div className="sim-mockup">
@@ -35,7 +54,7 @@ function App() {
           {active.blocks && <FlashGrid blocks={active.blocks} caption={active.caption} />}
           {active.wearRows && <WearLevelingView rows={active.wearRows} caption={active.caption} />}
           <div className="sim-sidebar">
-            <MappingTable rows={active.mapping} />
+            <MappingTable rows={mappingRows} />
             <ParamPanel params={active.params} />
             <StatsPanel stats={active.stats} />
           </div>

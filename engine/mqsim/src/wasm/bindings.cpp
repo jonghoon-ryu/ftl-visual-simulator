@@ -226,6 +226,13 @@ val get_state()
 			row.set("lpa", entry.Lpa);
 			row.set("ppa", entry.Mapped ? val(entry.Ppa) : val::null());
 			row.set("mapped", entry.Mapped);
+			if (entry.Mapped) {
+				val address = address_to_val(entry.Address);
+				address.set("page", entry.Address.PageID);
+				row.set("address", address);
+			} else {
+				row.set("address", val::null());
+			}
 			mapping.call<void>("push", row);
 		}
 	}

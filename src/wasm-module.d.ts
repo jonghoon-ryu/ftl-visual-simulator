@@ -11,10 +11,20 @@ declare module '*.mjs' {
 // Shape of the object createMQSimModule() resolves to - the embind
 // bindings exported from engine/mqsim/src/wasm/bindings.cpp. LPA/PPA come
 // back as BigInt (64-bit types via embind), not number.
+interface MqsimBlockAddress {
+  channel: number;
+  chip: number;
+  die: number;
+  plane: number;
+  block: number;
+  page: number;
+}
+
 interface MqsimMappingRow {
   lpa: bigint;
   ppa: bigint | null;
   mapped: boolean;
+  address: MqsimBlockAddress | null;
 }
 
 interface MqsimState {
