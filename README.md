@@ -18,19 +18,22 @@ Live app: [ftl-visual-simulator-app on GitHub Pages](https://jonghoon-ryu.github
 
 ## Status
 
-Two of the three concept presets run on the real WASM engine end-to-end:
+All three concept presets run on the real WASM engine end-to-end:
 
 - **매핑 기본 (mapping basics)** and **GC 시연 (GC demo)** — real playback,
   live mapping table, flash block/page grid, event log, and stats (WAF,
   valid-page ratio, GC/WL execution counts, erase count), all reconfigurable
   via interactive parameter (page/block/OP/GC-threshold/mapping-method) and
   workload (access pattern/read ratio/burst size) controls.
-- **마모평준화 시연 (wear-leveling demo)** is still a static mock — static
-  wear leveling was never confirmed to reliably trigger within a
-  demo-sized run even in dedicated testing, so wiring it to the real engine
-  is intentionally deferred rather than shipped half-working (see the
-  [MQSim reference docs](https://jonghoon-ryu.github.io/ftl-visual-simulator/reference/)
-  for the investigation).
+- **마모평준화 시연 (wear-leveling demo)** — real per-block erase-count view,
+  wired to the real engine after fixing a genuine upstream bug: MQSim's
+  `SSD_Device.cpp` never actually passed the wear-leveling config fields
+  through to the GC/WL unit, so `Static_Wearleveling_Threshold` was
+  silently ignored no matter what `ssdconfig.xml` said. With that fixed,
+  static wear-leveling triggers exactly once per run at this preset's demo
+  scale (see the [reference docs](https://jonghoon-ryu.github.io/ftl-visual-simulator/reference/)
+  for why it doesn't repeat, and why that's an honest limit rather than a
+  bug).
 
 ## How it works
 
@@ -61,7 +64,9 @@ Two of the three concept presets run on the real WASM engine end-to-end:
 
 Several real, pre-existing MQSim bugs (a use-after-free in the DRAM cache
 teardown path, an uninitialized-field divide-by-zero, two static
-wear-leveling logic bugs) were found and fixed along the way — see the
+wear-leveling logic bugs, and a dropped-config-parameter bug that made
+`Static_Wearleveling_Threshold` unconfigurable) were found and fixed along
+the way — see the
 [reference docs](https://jonghoon-ryu.github.io/ftl-visual-simulator/reference/)
 for the investigation write-ups.
 

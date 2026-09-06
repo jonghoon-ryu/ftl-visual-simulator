@@ -13,6 +13,10 @@ export interface SsdParams {
   pageNoPerBlock: number;
   overprovisioningRatio: number; // 0..1
   gcExecThreshold: number; // 0..1
+  // erase-count gap (max - min) that triggers static wear-leveling - see
+  // DEFAULT_WL_PARAMS' comment for why "마모평준화 시연" needs this far
+  // lower than the other presets' shared default of 100.
+  staticWlThreshold: number;
   // 'HYBRID' is intentionally not a real option here - MQSim's Hybrid
   // Address_Mapping_Unit is an empty stub nothing constructs (see the
   // comment on Get_mapping_table_snapshot() in MQSim_Interface.cpp) -
@@ -32,6 +36,7 @@ export const DEFAULT_MAPPING_PARAMS: SsdParams = {
   pageNoPerBlock: 16,
   overprovisioningRatio: 0.07,
   gcExecThreshold: 0.05,
+  staticWlThreshold: 100,
   addressMapping: 'PAGE_LEVEL',
 };
 
@@ -75,7 +80,7 @@ export function buildSsdConfigXml(params: SsdParams): string {
 		<GC_Hard_Threshold>0.005000</GC_Hard_Threshold>
 		<Dynamic_Wearleveling_Enabled>true</Dynamic_Wearleveling_Enabled>
 		<Static_Wearleveling_Enabled>true</Static_Wearleveling_Enabled>
-		<Static_Wearleveling_Threshold>100</Static_Wearleveling_Threshold>
+		<Static_Wearleveling_Threshold>${params.staticWlThreshold}</Static_Wearleveling_Threshold>
 		<Preferred_suspend_erase_time_for_read>700000</Preferred_suspend_erase_time_for_read>
 		<Preferred_suspend_erase_time_for_write>700000</Preferred_suspend_erase_time_for_write>
 		<Preferred_suspend_write_time_for_read>100000</Preferred_suspend_write_time_for_read>
@@ -239,6 +244,78 @@ export function buildGcWorkloadXml(params: SsdParams, workload: WorkloadParams =
 			<Average_No_of_Reqs_in_Queue>4</Average_No_of_Reqs_in_Queue>
 			<Intensity>32768</Intensity>
 			<Stop_Time>2500000000</Stop_Time>
+			<Total_Requests_To_Generate>1000000</Total_Requests_To_Generate>
+		</IO_Flow_Parameter_Set_Synthetic>
+	</IO_Scenario>
+</MQSim_IO_Scenarios>
+`;
+}
+
+// "마모평준화 시연" preset - found via a native step-count harness that
+// static wear-leveling was, until now, IMPOSSIBLE to trigger regardless of
+// workload or Static_Wearleveling_Threshold: SSD_Device.cpp's construction
+// of GC_and_WL_Unit_Page_Level never passed Dynamic_Wearleveling_Enabled/
+// Static_Wearleveling_Enabled/Static_Wearleveling_Threshold through from
+// the parsed config at all, silently using the class's compiled-in
+// defaults (true, true, 100) no matter what ssdconfig.xml said - a real
+// upstream bug, fixed in engine/mqsim/src/exec/SSD_Device.cpp (see this
+// project's reference docs for the full writeup). With that fixed,
+// Static_Wearleveling_Threshold finally does something - but 100 (the
+// realistic upstream default) is still unreachable at any demo-sized
+// scale, for the structural reason Session 6 already documented: the
+// block with the lowest erase count is always either a genuinely never-
+// used free block or the live write/GC/translation frontier, and
+// is_safe_gc_wl_candidate() (GC_and_WL_Unit_Base.cpp) explicitly rejects
+// picking a frontier block as the WL target. So building up a *large*
+// gap before some other, non-frontier block becomes the coldest doesn't
+// help - what's needed is a *low enough* threshold that WL fires on a
+// small, achievable gap instead. staticWlThreshold: 1 confirmed via the
+// harness to trigger real WL exactly once by ~1.5M event-groups (64
+// blocks, same GC-forcing tuning as "GC 시연") - it does not repeat
+// within a further 15M+ event-groups even as the gap keeps growing,
+// because the freed block immediately becomes the *new* frontier
+// (dynamic wear-leveling prefers reusing the least-worn free block),
+// reintroducing the same block ineligibility this preset works around.
+// One real, verified WL execution - not a repeating cycle - is what this
+// preset can honestly demonstrate at this scale.
+export const DEFAULT_WL_PARAMS: SsdParams = {
+  ...DEFAULT_MAPPING_PARAMS,
+  // Larger than the other presets' 16 - verified via the same harness
+  // that 16 blocks stalls out (writes permanently hard-blocked, same
+  // mechanism as MIN_BLOCK_NO_PER_PLANE) before enough erases accumulate
+  // for even a threshold of 1 to be reachable; 64 sustains well past the
+  // point WL fires.
+  blockNoPerPlane: 64,
+  gcExecThreshold: 0.5,
+  staticWlThreshold: 1,
+};
+
+export function buildWlWorkloadXml(params: SsdParams, workload: WorkloadParams = DEFAULT_WORKLOAD_PARAMS): string {
+  return `<?xml version="1.0" encoding="us-ascii"?>
+<MQSim_IO_Scenarios>
+	<IO_Scenario>
+		<IO_Flow_Parameter_Set_Synthetic>
+			<Priority_Class>HIGH</Priority_Class>
+			<Device_Level_Data_Caching_Mode>WRITE_CACHE</Device_Level_Data_Caching_Mode>
+			<Channel_IDs>0</Channel_IDs>
+			<Chip_IDs>0</Chip_IDs>
+			<Die_IDs>0</Die_IDs>
+			<Plane_IDs>0</Plane_IDs>
+			<Initial_Occupancy_Percentage>0</Initial_Occupancy_Percentage>
+			<Working_Set_Percentage>25</Working_Set_Percentage>
+			<Synthetic_Generator_Type>QUEUE_DEPTH</Synthetic_Generator_Type>
+			<Read_Percentage>${workload.readPercentage}</Read_Percentage>
+			<Address_Distribution>${workload.addressDistribution}</Address_Distribution>
+			<Percentage_of_Hot_Region>0</Percentage_of_Hot_Region>
+			<Generated_Aligned_Addresses>true</Generated_Aligned_Addresses>
+			<Address_Alignment_Unit>${params.pageNoPerBlock}</Address_Alignment_Unit>
+			<Request_Size_Distribution>FIXED</Request_Size_Distribution>
+			<Average_Request_Size>${workload.burstSize}</Average_Request_Size>
+			<Variance_Request_Size>0</Variance_Request_Size>
+			<Seed>798</Seed>
+			<Average_No_of_Reqs_in_Queue>4</Average_No_of_Reqs_in_Queue>
+			<Intensity>32768</Intensity>
+			<Stop_Time>8000000000</Stop_Time>
 			<Total_Requests_To_Generate>1000000</Total_Requests_To_Generate>
 		</IO_Flow_Parameter_Set_Synthetic>
 	</IO_Scenario>
