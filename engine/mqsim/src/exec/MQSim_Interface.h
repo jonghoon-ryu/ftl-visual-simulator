@@ -7,6 +7,7 @@
 #include "IO_Flow_Parameter_Set.h"
 #include "SSD_Device.h"
 #include "Host_System.h"
+#include "../ssd/Address_Mapping_Unit_Page_Level.h"
 
 // Callable-library form of what main.cpp used to do inline: parse the two
 // config files once, then set up/run/report on one IO_Scenario at a time.
@@ -60,6 +61,12 @@ namespace MQSim_Interface
 	// Writes the same "MQSim_Results" XML + per-flow console report that
 	// main.cpp's old collect_results() produced.
 	void Write_results(Simulation_Instance* instance, const std::string& output_file_path);
+
+	// Point-in-time mapping-table snapshot for one stream of the running
+	// scenario - the data source behind the WASM getState() export. Only
+	// valid while `instance` is initialized (between Initialize_scenario()
+	// and Finalize_scenario()).
+	std::vector<SSD_Components::Mapping_Snapshot_Entry> Get_mapping_table_snapshot(Simulation_Instance* instance, stream_id_type stream_id = 0);
 
 	// Releases the SSD_Device/Host_System for this one scenario.
 	void Finalize_scenario(Simulation_Instance* instance);

@@ -40,6 +40,16 @@ namespace SSD_Components
 		uint64_t WrittenStateBitmap;
 		data_timestamp_type TimeStamp;
 	};
+
+	// One row of a point-in-time mapping-table snapshot, used by
+	// Address_Mapping_Unit_Page_Level::Get_mapping_table_snapshot() (the
+	// engine-side data source behind the WASM getState() export).
+	struct Mapping_Snapshot_Entry
+	{
+		LPA_type Lpa;
+		PPA_type Ppa;
+		bool Mapped; // false if this LPA has never been written
+	};
 	
 	class Cached_Mapping_Table
 	{
@@ -48,6 +58,11 @@ namespace SSD_Components
 		~Cached_Mapping_Table();
 		bool Exists(const stream_id_type streamID, const LPA_type lpa);
 		PPA_type Retrieve_ppa(const stream_id_type streamID, const LPA_type lpa);
+		// Same lookup as Retrieve_ppa(), but for read-only inspection callers
+		// (e.g. a UI state snapshot) that must not perturb LRU order the way
+		// Retrieve_ppa()'s splice does. Caller must have already checked
+		// Exists() - same precondition as Retrieve_ppa().
+		PPA_type Peek_ppa(const stream_id_type streamID, const LPA_type lpa) const;
 		void Update_mapping_info(const stream_id_type streamID, const LPA_type lpa, const PPA_type ppa, const page_status_type pageWriteState);
 		void Insert_new_mapping_info(const stream_id_type streamID, const LPA_type lpa, const PPA_type ppa, const unsigned long long pageWriteState);
 		page_status_type Get_bitmap_vector_of_written_sectors(const stream_id_type streamID, const LPA_type lpa);
@@ -150,6 +165,10 @@ namespace SSD_Components
 		int Bring_to_CMT_for_preconditioning(stream_id_type stream_id, LPA_type lpa);
 		unsigned int Get_cmt_capacity();
 		unsigned int Get_current_cmt_occupancy_for_stream(stream_id_type stream_id);
+		// Point-in-time snapshot of every LPA's current mapping for one
+		// stream, for UI/inspection use (WASM getState()). Read-only: never
+		// touches CMT LRU order or any other simulation state.
+		std::vector<Mapping_Snapshot_Entry> Get_mapping_table_snapshot(stream_id_type stream_id = 0);
 		void Translate_lpa_to_ppa_and_dispatch(const std::list<NVM_Transaction*>& transactionList);
 		void Get_data_mapping_info_for_gc(const stream_id_type stream_id, const LPA_type lpa, PPA_type& ppa, page_status_type& page_state);
 		void Get_translation_mapping_info_for_gc(const stream_id_type stream_id, const MVPN_type mvpn, MPPN_type& mppa, sim_time_type& timestamp);
