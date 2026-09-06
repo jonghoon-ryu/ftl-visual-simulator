@@ -225,7 +225,14 @@ namespace SSD_Components
 		return dynamic_wearleveling_enabled;
 	}
 
-	inline bool GC_and_WL_Unit_Base::Use_static_wearleveling()
+	// BUILD FIX (this project): was `inline` - meaningless (and actively
+	// harmful) on an out-of-line definition that lives in exactly one .cpp
+	// file. `inline` only matters for definitions repeated across multiple
+	// translation units via a header; here it let the compiler decide not
+	// to emit an externally-linkable symbol at all, since nothing else in
+	// this file happened to need one - which broke the moment a unit test
+	// in a different .cpp tried to call it directly (see engine/tests/unit).
+	bool GC_and_WL_Unit_Base::Use_static_wearleveling()
 	{
 		return static_wearleveling_enabled;
 	}
@@ -259,7 +266,9 @@ namespace SSD_Components
 		return true;
 	}
 
-	inline bool GC_and_WL_Unit_Base::check_static_wl_required(const NVM::FlashMemory::Physical_Page_Address plane_address)
+	// BUILD FIX (this project): same stray `inline` issue as Use_static_
+	// wearleveling() above - see that comment.
+	bool GC_and_WL_Unit_Base::check_static_wl_required(const NVM::FlashMemory::Physical_Page_Address plane_address)
 	{
 		return static_wearleveling_enabled && (block_manager->Get_min_max_erase_difference(plane_address) >= static_wearleveling_threshold);
 	}

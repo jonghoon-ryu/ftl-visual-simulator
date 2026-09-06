@@ -14,10 +14,13 @@ set -euo pipefail
 # that same check made repeatable instead of a throwaway one-off each time.
 #
 # This is NOT a substitute for real unit tests (mocking the FTL's abstract
-# interfaces with GMock) - that's intentionally deferred to a later buffer
-# session, see the "MQSim/FTL 심화" plan docs. This only catches "did the
-# simulation's actual output change", which is exactly what an
-# instrumentation-only change (a hook, an export function) must never do.
+# interfaces with GMock - see engine/run-unit-tests.sh / engine/tests/unit/).
+# This only catches "did the simulation's actual output change", which is
+# exactly what an instrumentation-only change (a hook, an export function)
+# must never do; the GMock suite instead checks that individual modules
+# (GC/WL trigger logic, erase-count bookkeeping, ...) behave correctly
+# under conditions a real workload may take millions of event-groups to
+# stumble into naturally, or may never reach at all.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENGINE_DIR="$SCRIPT_DIR/mqsim"

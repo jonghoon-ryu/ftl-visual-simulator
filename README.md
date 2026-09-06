@@ -61,6 +61,14 @@ All three concept presets run on the real WASM engine end-to-end:
    WASM) CLI from the same `engine/mqsim/src` and diffs its output against
    committed golden result files — a way to check that instrumentation
    changes (hooks, `getState()`) never alter what MQSim actually simulates.
+6. **GMock/GTest unit tests**: `npm run test:engine:unit` (`engine/tests/unit/`)
+   isolates individual engine modules behind hand-written fakes/mocks of
+   their collaborators, so a specific condition (an erase-count spread, a
+   GC/WL threshold) can be checked deterministically in milliseconds instead
+   of running a real workload for millions of event-groups hoping to
+   stumble into it naturally — see the
+   [wear-leveling integration doc](https://jonghoon-ryu.github.io/ftl-visual-simulator/plan/wear-leveling-integration/)
+   for the investigation that motivated writing these.
 
 Several real, pre-existing MQSim bugs (a use-after-free in the DRAM cache
 teardown path, an uninitialized-field divide-by-zero, two static
@@ -84,6 +92,7 @@ npm run dev            # dev server (needs src/wasm-build/ already built - see b
 npm run build           # typecheck + production build
 npm run lint            # oxlint
 npm run test:engine     # native golden regression tests for engine/mqsim
+npm run test:engine:unit # GMock/GTest unit tests for engine/mqsim (needs network on first run)
 ```
 
 Building the WASM module requires an active [Emscripten SDK](https://emscripten.org/docs/getting_started/downloads.html)
