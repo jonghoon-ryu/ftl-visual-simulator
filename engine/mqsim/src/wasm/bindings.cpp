@@ -4,6 +4,7 @@
 #include "../exec/MQSim_Interface.h"
 #include "../exec/Simulation_Events.h"
 #include "../nvm_chip/flash_memory/Physical_Page_Address.h"
+#include "../ssd/Stats.h"
 
 using namespace emscripten;
 
@@ -36,6 +37,30 @@ namespace
 		return obj;
 	}
 
+	std::string page_state_to_string(SSD_Components::Block_Page_State state)
+	{
+		switch (state) {
+			case SSD_Components::Block_Page_State::VALID: return "valid";
+			case SSD_Components::Block_Page_State::INVALID: return "invalid";
+			case SSD_Components::Block_Page_State::FREE:
+			default: return "free";
+		}
+	}
+
+	// GC_WL/GC_USER/GC_UWAIT/GC_USER_UWAIT all mean "this block currently
+	// has a GC or WL operation in flight" from a UI's point of view - the
+	// finer-grained distinction is about interleaving with concurrent user
+	// I/O (see Block_Service_Status's doc comment in Flash_Block_Manager_
+	// Base.h), not something a beginner-facing block grid needs to show.
+	std::string block_status_to_string(SSD_Components::Block_Service_Status status)
+	{
+		switch (status) {
+			case SSD_Components::Block_Service_Status::IDLE: return "idle";
+			case SSD_Components::Block_Service_Status::USER: return "user";
+			default: return "gc_wl";
+		}
+	}
+
 	void teardown_current()
 	{
 		if (g_instance) {
@@ -62,6 +87,9 @@ namespace
 		payload.set("lpa", event.Lpa);
 		payload.set("ppa", event.Ppa);
 		payload.set("isWrite", event.Is_write);
+		val address = address_to_val(event.Address);
+		address.set("page", event.Address.PageID);
+		payload.set("address", address);
 		g_event_callback(payload);
 	}
 
@@ -237,8 +265,31 @@ val get_state()
 		}
 	}
 
+	val blocks = val::array();
+	if (g_instance) {
+		auto snapshot = MQSim_Interface::Get_block_state_snapshot(g_instance);
+		for (const auto& entry : snapshot) {
+			val row = address_to_val(entry.Address);
+			row.set("eraseCount", entry.EraseCount);
+			row.set("status", block_status_to_string(entry.Status));
+			val pages = val::array();
+			for (const auto& page_state : entry.Pages) {
+				pages.call<void>("push", std::string(page_state_to_string(page_state)));
+			}
+			row.set("pages", pages);
+			blocks.call<void>("push", row);
+		}
+	}
+
+	val stats = val::object();
+	stats.set("issuedProgramCmd", SSD_Components::Stats::IssuedProgramCMD);
+	stats.set("gcExecutions", SSD_Components::Stats::Total_gc_executions);
+	stats.set("wlExecutions", SSD_Components::Stats::Total_wl_executions);
+
 	val state = val::object();
 	state.set("mapping", mapping);
+	state.set("blocks", blocks);
+	state.set("stats", stats);
 	return state;
 }
 

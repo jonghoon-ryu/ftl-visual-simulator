@@ -11,12 +11,18 @@ declare module '*.mjs' {
 // Shape of the object createMQSimModule() resolves to - the embind
 // bindings exported from engine/mqsim/src/wasm/bindings.cpp. LPA/PPA come
 // back as BigInt (64-bit types via embind), not number.
+// address_to_val() in bindings.cpp only ever sets these five fields -
+// `page` is added separately, only at the call sites that address one
+// specific page rather than a whole block (see MqsimPageAddress below).
 interface MqsimBlockAddress {
   channel: number;
   chip: number;
   die: number;
   plane: number;
   block: number;
+}
+
+interface MqsimPageAddress extends MqsimBlockAddress {
   page: number;
 }
 
@@ -24,11 +30,28 @@ interface MqsimMappingRow {
   lpa: bigint;
   ppa: bigint | null;
   mapped: boolean;
-  address: MqsimBlockAddress | null;
+  address: MqsimPageAddress | null;
+}
+
+type MqsimPageState = 'valid' | 'invalid' | 'free';
+type MqsimBlockStatus = 'idle' | 'user' | 'gc_wl';
+
+interface MqsimBlockSnapshot extends MqsimBlockAddress {
+  eraseCount: number;
+  status: MqsimBlockStatus;
+  pages: MqsimPageState[]; // length == pages_no_per_block, indexed by page id
+}
+
+interface MqsimStats {
+  issuedProgramCmd: number;
+  gcExecutions: number;
+  wlExecutions: number;
 }
 
 interface MqsimState {
   mapping: MqsimMappingRow[];
+  blocks: MqsimBlockSnapshot[];
+  stats: MqsimStats;
 }
 
 interface MqsimEvent {
@@ -37,14 +60,13 @@ interface MqsimEvent {
   lpa?: bigint;
   ppa?: bigint;
   isWrite?: boolean;
-  block?: {
-    channel: number;
-    chip: number;
-    die: number;
-    plane: number;
-    block: number;
-    page?: number;
-  };
+  // mapping_updated only: the single page just translated.
+  address?: MqsimPageAddress;
+  // gc_*/wl_*/dynamic_wl_* only: the block the event is about. Only the two
+  // *_page_migrated event types carry `page` (the specific page moved);
+  // the others are block-wide (gc_started/gc_block_erased/wl_started/
+  // wl_block_erased/dynamic_wl_block_allocated/dynamic_wl_block_freed).
+  block?: MqsimBlockAddress | MqsimPageAddress;
   eraseCount?: number;
   forMappingData?: boolean;
   dynamicWlConsidered?: boolean;

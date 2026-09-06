@@ -68,6 +68,11 @@ namespace MQSim_Interface
 	// and Finalize_scenario()).
 	std::vector<SSD_Components::Mapping_Snapshot_Entry> Get_mapping_table_snapshot(Simulation_Instance* instance, stream_id_type stream_id = 0);
 
+	// Point-in-time state of every block in the device - the data source
+	// behind the WASM getState() export's "blocks" field. See Flash_Block_
+	// Manager_Base::Get_block_state_snapshot().
+	std::vector<SSD_Components::Block_Snapshot_Entry> Get_block_state_snapshot(Simulation_Instance* instance);
+
 	// Releases the SSD_Device/Host_System for this one scenario.
 	void Finalize_scenario(Simulation_Instance* instance);
 

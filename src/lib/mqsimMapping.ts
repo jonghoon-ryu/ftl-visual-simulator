@@ -14,7 +14,7 @@ export function toMappingRows(state: MqsimState | null): MappingRow[] {
   if (!state) return [];
 
   return state.mapping
-    .filter((row): row is MqsimMappingRow & { address: MqsimBlockAddress } => row.mapped && row.address !== null)
+    .filter((row): row is MqsimMappingRow & { address: MqsimPageAddress } => row.mapped && row.address !== null)
     .slice(0, MAX_DISPLAY_ROWS)
     .map((row) => ({
       lpa: `0x${row.lpa.toString(16).padStart(3, '0')}`,

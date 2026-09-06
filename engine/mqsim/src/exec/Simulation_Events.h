@@ -20,14 +20,15 @@ namespace Simulation_Events
 		LPA_type Lpa;
 		PPA_type Ppa;
 		bool Is_write; // false: resolved for a read, true: newly written
+		NVM::FlashMemory::Physical_Page_Address Address; // decomposed Ppa
 	};
 
 	extern void (*On_mapping_updated)(const Mapping_Updated_Event&);
 
-	inline void Notify_mapping_updated(stream_id_type stream_id, LPA_type lpa, PPA_type ppa, bool is_write)
+	inline void Notify_mapping_updated(stream_id_type stream_id, LPA_type lpa, PPA_type ppa, bool is_write, const NVM::FlashMemory::Physical_Page_Address& address)
 	{
 		if (On_mapping_updated) {
-			Mapping_Updated_Event event{ stream_id, lpa, ppa, is_write };
+			Mapping_Updated_Event event{ stream_id, lpa, ppa, is_write, address };
 			On_mapping_updated(event);
 		}
 	}

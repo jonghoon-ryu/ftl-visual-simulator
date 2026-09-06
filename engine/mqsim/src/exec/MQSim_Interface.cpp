@@ -288,6 +288,12 @@ namespace MQSim_Interface
 		return amu->Get_mapping_table_snapshot(stream_id);
 	}
 
+	std::vector<SSD_Components::Block_Snapshot_Entry> Get_block_state_snapshot(Simulation_Instance* instance)
+	{
+		SSD_Components::FTL* ftl = static_cast<SSD_Components::FTL*>(instance->Ssd->Firmware);
+		return ftl->BlockManager->Get_block_state_snapshot();
+	}
+
 	void Finalize_scenario(Simulation_Instance* instance)
 	{
 		delete instance->Host;
