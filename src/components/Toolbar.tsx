@@ -39,19 +39,30 @@ export function Toolbar({ presets, activeId, onSelect, playback }: Props) {
         className="sim-playback"
         title={disabled ? '이 프리셋은 아직 실제 엔진에 연결되지 않았어요' : !hasMore ? '워크로드 이벤트가 모두 처리됐어요' : undefined}
       >
-        <button type="button" disabled={disabled} onClick={onRestart}>
+        <button type="button" aria-label="처음부터 다시 시작" disabled={disabled} onClick={onRestart}>
           ⏮
         </button>
-        <button type="button" disabled={disabled || !hasMore} onClick={onTogglePlay}>
+        <button
+          type="button"
+          aria-label={isPlaying ? '일시정지' : '재생'}
+          disabled={disabled || !hasMore}
+          onClick={onTogglePlay}
+        >
           {isPlaying ? '⏸' : '▶'}
         </button>
-        <button type="button" disabled={disabled || !hasMore || isPlaying} onClick={onStepOnce}>
+        <button
+          type="button"
+          aria-label="한 단계씩 실행"
+          disabled={disabled || !hasMore || isPlaying}
+          onClick={onStepOnce}
+        >
           ⏭
         </button>
         <span>속도</span>
         <input
           className="sim-speed-slider"
           type="range"
+          aria-label="재생 속도"
           min={1}
           max={8}
           step={1}

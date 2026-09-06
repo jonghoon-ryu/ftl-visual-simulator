@@ -86,6 +86,11 @@
   flex: 1 1 480px;
   padding: 14px;
   border-right: 1px solid #33374a;
+  /* A block row can have up to 64 pages (ParamPanel's max) - rather than
+     wrapping a single block's pages across multiple lines (which breaks
+     the "one row = one block" visual), the row scrolls horizontally
+     within this panel when it doesn't fit. */
+  overflow-x: auto;
 }
 
 .sim-panel-title {
@@ -111,6 +116,8 @@
   align-items: center;
   gap: 6px;
   margin-bottom: 3px;
+  width: max-content;
+  min-width: 100%;
 }
 
 .row-label {
@@ -123,7 +130,7 @@
 .row-cells {
   display: flex;
   gap: 2px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .cell {
@@ -326,4 +333,35 @@
   font-size: 11px;
   color: #9aa0b0;
   flex-shrink: 0;
+}
+
+/* Narrow viewports (phones) - shrink the flash grid's cells so the default
+   geometry (32 blocks x 16 pages) fits without needing to scroll; larger
+   geometries (up to 64 pages/block) still scroll horizontally via
+   .sim-grid-panel's overflow-x, this just raises how much fits before
+   that kicks in. */
+@media (max-width: 600px) {
+  .sim-app {
+    padding: 20px 8px 48px;
+  }
+
+  .row-label {
+    width: 56px;
+    font-size: 9.5px;
+  }
+
+  .cell {
+    width: 14px;
+    height: 14px;
+    font-size: 7px;
+  }
+
+  .wl-label {
+    width: 48px;
+  }
+
+  .wl-count {
+    width: 72px;
+    font-size: 10px;
+  }
 }

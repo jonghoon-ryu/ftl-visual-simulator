@@ -14,22 +14,80 @@ visible and explorable, not just simulated.
 
 Full development plan and write-ups (in Korean) live at
 [jonghoon-ryu.github.io/ftl-visual-simulator](https://jonghoon-ryu.github.io/ftl-visual-simulator/).
+Live app: [ftl-visual-simulator-app on GitHub Pages](https://jonghoon-ryu.github.io/ftl-visual-simulator-app/).
 
 ## Status
 
-Early scaffold. The UI shell and static preset mockups (매핑 기본 / GC 시연 /
-마모평준화 시연) are in place; the MQSim-to-WASM build and live engine
-bindings are not wired up yet.
+Two of the three concept presets run on the real WASM engine end-to-end:
+
+- **매핑 기본 (mapping basics)** and **GC 시연 (GC demo)** — real playback,
+  live mapping table, flash block/page grid, event log, and stats (WAF,
+  valid-page ratio, GC/WL execution counts, erase count), all reconfigurable
+  via interactive parameter (page/block/OP/GC-threshold/mapping-method) and
+  workload (access pattern/read ratio/burst size) controls.
+- **마모평준화 시연 (wear-leveling demo)** is still a static mock — static
+  wear leveling was never confirmed to reliably trigger within a
+  demo-sized run even in dedicated testing, so wiring it to the real engine
+  is intentionally deferred rather than shipped half-working (see the
+  [MQSim reference docs](https://jonghoon-ryu.github.io/ftl-visual-simulator/reference/)
+  for the investigation).
+
+## How it works
+
+1. **Engine**: `engine/mqsim/src` is MQSim's C++ source with a small
+   library-style interface (`MQSim_Interface.cpp`) added on top of it,
+   plus Emscripten bindings (`src/wasm/bindings.cpp`) exposing
+   `init`/`configure`/`step`/`run`/`getState`/`setEventCallback` to
+   JavaScript. `engine/build-wasm.sh` compiles it to
+   `src/wasm-build/mqsim.{mjs,wasm}` (gitignored — rebuilt from source, see
+   `.github/workflows/deploy.yml`).
+2. **Worker**: the compiled module runs inside a dedicated Web Worker
+   (`src/workers/mqsim.worker.ts`), so a long `run()` call never blocks the
+   UI thread. `src/hooks/useMqsimEngine.ts` is a small promise-based RPC
+   client for it.
+3. **Config as XML, in memory**: parameter/workload panels don't reach into
+   the engine directly — they generate `ssdconfig.xml`/`workload.xml` text
+   (`src/data/mqsimConfigs.ts`), which gets written into the WASM module's
+   in-memory filesystem and parsed by MQSim's own (unmodified) XML config
+   reader, the same as the original CLI would read files from disk.
+4. **Hooks → events**: real engine events (mapping updates, GC/WL
+   start/migrate/erase, dynamic-WL block rotation) are forwarded from C++
+   to JS via a single registered callback and fanned out to whichever
+   hooks/components subscribed (`src/hooks/useMqsimEvents.ts`).
+5. **Golden regression tests**: `npm run test:engine` builds a native (non-
+   WASM) CLI from the same `engine/mqsim/src` and diffs its output against
+   committed golden result files — a way to check that instrumentation
+   changes (hooks, `getState()`) never alter what MQSim actually simulates.
+
+Several real, pre-existing MQSim bugs (a use-after-free in the DRAM cache
+teardown path, an uninitialized-field divide-by-zero, two static
+wear-leveling logic bugs) were found and fixed along the way — see the
+[reference docs](https://jonghoon-ryu.github.io/ftl-visual-simulator/reference/)
+for the investigation write-ups.
 
 ## Stack
 
 - Vite + React + TypeScript (UI)
 - MQSim C++ compiled to WebAssembly via Emscripten (engine, `engine/mqsim`)
-- GitHub Pages (deploy target)
+- GitHub Pages (deploy target, auto-built on every push to `main`)
 
 ## Development
 
 ```bash
 npm install
-npm run dev
+npm run dev            # dev server (needs src/wasm-build/ already built - see below)
+npm run build           # typecheck + production build
+npm run lint            # oxlint
+npm run test:engine     # native golden regression tests for engine/mqsim
 ```
+
+Building the WASM module requires an active [Emscripten SDK](https://emscripten.org/docs/getting_started/downloads.html)
+on `PATH` (`source /path/to/emsdk/emsdk_env.sh`), then:
+
+```bash
+bash engine/build-wasm.sh
+```
+
+`src/wasm-build/` is gitignored — CI rebuilds it from `engine/mqsim/src` on
+every deploy, so there's never a stale prebuilt binary to fall out of sync
+with the source.
