@@ -2,6 +2,7 @@
 #include "../nvm_chip/flash_memory/Physical_Page_Address.h"
 #include "Flash_Block_Manager.h"
 #include "Stats.h"
+#include "../exec/Simulation_Events.h"
 
 namespace SSD_Components
 {
@@ -30,6 +31,9 @@ namespace SSD_Components
 		if(plane_record->Data_wf[stream_id]->Current_page_write_index == pages_no_per_block) {
 			//Assign a new write frontier block
 			plane_record->Data_wf[stream_id] = plane_record->Get_a_free_block(stream_id, false);
+			NVM::FlashMemory::Physical_Page_Address wf_address(page_address);
+			wf_address.BlockID = plane_record->Data_wf[stream_id]->BlockID;
+			Simulation_Events::Notify_dynamic_wl_block_allocated(stream_id, wf_address, plane_record->Data_wf[stream_id]->Erase_count, false);
 			gc_and_wl_unit->Check_gc_required(plane_record->Get_free_block_pool_size(), page_address);
 		}
 
@@ -49,6 +53,9 @@ namespace SSD_Components
 		if (plane_record->GC_wf[stream_id]->Current_page_write_index == pages_no_per_block) {
 			//Assign a new write frontier block
 			plane_record->GC_wf[stream_id] = plane_record->Get_a_free_block(stream_id, false);
+			NVM::FlashMemory::Physical_Page_Address wf_address(page_address);
+			wf_address.BlockID = plane_record->GC_wf[stream_id]->BlockID;
+			Simulation_Events::Notify_dynamic_wl_block_allocated(stream_id, wf_address, plane_record->GC_wf[stream_id]->Erase_count, false);
 			gc_and_wl_unit->Check_gc_required(plane_record->Get_free_block_pool_size(), page_address);
 		}
 		plane_record->Check_bookkeeping_correctness(page_address);
@@ -86,6 +93,9 @@ namespace SSD_Components
 
 		//Update the write frontier
 		plane_record->Data_wf[stream_id] = plane_record->Get_a_free_block(stream_id, false);
+		NVM::FlashMemory::Physical_Page_Address wf_address(plane_address);
+		wf_address.BlockID = plane_record->Data_wf[stream_id]->BlockID;
+		Simulation_Events::Notify_dynamic_wl_block_allocated(stream_id, wf_address, plane_record->Data_wf[stream_id]->Erase_count, false);
 	}
 
 	void Flash_Block_Manager::Allocate_block_and_page_in_plane_for_translation_write(const stream_id_type streamID, NVM::FlashMemory::Physical_Page_Address& page_address, bool is_for_gc)
@@ -101,6 +111,9 @@ namespace SSD_Components
 		if (plane_record->Translation_wf[streamID]->Current_page_write_index == pages_no_per_block) {
 			//Assign a new write frontier block
 			plane_record->Translation_wf[streamID] = plane_record->Get_a_free_block(streamID, true);
+			NVM::FlashMemory::Physical_Page_Address wf_address(page_address);
+			wf_address.BlockID = plane_record->Translation_wf[streamID]->BlockID;
+			Simulation_Events::Notify_dynamic_wl_block_allocated(streamID, wf_address, plane_record->Translation_wf[streamID]->Erase_count, true);
 			if (!is_for_gc) {
 				gc_and_wl_unit->Check_gc_required(plane_record->Get_free_block_pool_size(), page_address);
 			}
@@ -141,7 +154,9 @@ namespace SSD_Components
 		Stats::Block_erase_histogram[block_address.ChannelID][block_address.ChipID][block_address.DieID][block_address.PlaneID][block->Erase_count]--;
 		block->Erase();
 		Stats::Block_erase_histogram[block_address.ChannelID][block_address.ChipID][block_address.DieID][block_address.PlaneID][block->Erase_count]++;
-		plane_record->Add_to_free_block_pool(block, gc_and_wl_unit->Use_dynamic_wearleveling());
+		bool dynamic_wl_considered = gc_and_wl_unit->Use_dynamic_wearleveling();
+		Simulation_Events::Notify_dynamic_wl_block_freed(block_address, block->Erase_count, dynamic_wl_considered);
+		plane_record->Add_to_free_block_pool(block, dynamic_wl_considered);
 		plane_record->Check_bookkeeping_correctness(block_address);
 	}
 
