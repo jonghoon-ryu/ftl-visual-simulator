@@ -11,6 +11,13 @@ interface Options {
   engine: Pick<MqsimEngine, 'ready' | 'step' | 'run' | 'configure'>;
   onRefresh: () => void;
   onRestart: () => void;
+  // How many event-groups one "speed" unit (1-8, Toolbar's slider) is worth
+  // per tick/step - lets a preset whose workload needs vastly more
+  // event-groups to reach anything interesting (e.g. "GC 시연": ~850k to
+  // its first GC, measured via a native step-count harness) reach it in a
+  // reasonable real-time span without changing the slider's 1-8 UI range.
+  // Defaults to 1 (used by "매핑 기본", which only needs a few dozen).
+  ticksMultiplier?: number;
 }
 
 // Drives step()/run() for Toolbar's playback controls, via the worker-
@@ -18,17 +25,18 @@ interface Options {
 // async. Kept separate from useMqsimEngine (which only loads/inits the
 // engine once) since this hook's state - isPlaying, speed, hasMore - is
 // about *driving* an already-loaded engine, not loading it.
-export function useSimulationPlayback({ engine, onRefresh, onRestart }: Options) {
+export function useSimulationPlayback({ engine, onRefresh, onRestart, ticksMultiplier = 1 }: Options) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
   const [hasMore, setHasMore] = useState(true);
-  // Keeps the interval/callbacks below calling the latest engine/onRefresh
-  // without needing them in dependency arrays. Assigned in an effect (runs
-  // after commit), not during render - mutating a ref's .current directly
-  // in the render body is unsafe under Concurrent/Strict Mode.
-  const latestRef = useRef({ engine, onRefresh });
+  // Keeps the interval/callbacks below calling the latest engine/onRefresh/
+  // ticksMultiplier without needing them in dependency arrays. Assigned in
+  // an effect (runs after commit), not during render - mutating a ref's
+  // .current directly in the render body is unsafe under Concurrent/Strict
+  // Mode.
+  const latestRef = useRef({ engine, onRefresh, ticksMultiplier });
   useEffect(() => {
-    latestRef.current = { engine, onRefresh };
+    latestRef.current = { engine, onRefresh, ticksMultiplier };
   });
   // Guards against a tick starting before the previous one's postMessage
   // round-trip has resolved - shouldn't normally happen at 300ms with this
@@ -39,7 +47,11 @@ export function useSimulationPlayback({ engine, onRefresh, onRestart }: Options)
 
   const stepOnce = useCallback(async () => {
     if (!engine.ready) return;
-    const more = await engine.step();
+    // Treated as "one tick's worth" (not a literal single event-group) so
+    // manual stepping and play advance the sim by the same amount - a
+    // literal single step() would be imperceptible at a multiplier like
+    // GC 시연's.
+    const more = await engine.run(latestRef.current.ticksMultiplier);
     await latestRef.current.onRefresh();
     setHasMore(more);
     if (!more) setIsPlaying(false);
@@ -64,7 +76,7 @@ export function useSimulationPlayback({ engine, onRefresh, onRestart }: Options)
       if (tickInFlightRef.current) return;
       tickInFlightRef.current = true;
       latestRef.current.engine
-        .run(speed)
+        .run(speed * latestRef.current.ticksMultiplier)
         .then(async (more) => {
           await latestRef.current.onRefresh();
           setHasMore(more);

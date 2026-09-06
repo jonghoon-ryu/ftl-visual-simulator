@@ -149,3 +149,61 @@ export function buildMappingWorkloadXml(params: SsdParams): string {
 // parameterized builders yet.
 export const mappingBasicSsdConfigXml = buildSsdConfigXml(DEFAULT_MAPPING_PARAMS);
 export const mappingBasicWorkloadXml = buildMappingWorkloadXml(DEFAULT_MAPPING_PARAMS);
+
+// "GC 시연" preset - same small geometry, but a much higher GC_Exec_Threshold
+// (block_pool_gc_threshold = floor(gcExecThreshold * blockNoPerPlane) - the
+// default 0.05 needs the pool down to its last 1-2 blocks before GC ever
+// looks at firing, unreachable in a demo-sized run).
+export const DEFAULT_GC_PARAMS: SsdParams = {
+  ...DEFAULT_MAPPING_PARAMS,
+  gcExecThreshold: 0.5,
+};
+
+// Same synthetic write flow as buildMappingWorkloadXml, but tuned to
+// actually trigger GC live rather than just fill the mapping table:
+// - Working_Set_Percentage narrowed to 25% of the address space, so
+//   RANDOM_UNIFORM writes collide (overwrite the same LPA) often enough to
+//   produce invalid pages - GC_and_WL_Unit_Page_Level::Check_gc_required()
+//   silently no-ops if its randomly-sampled candidate block has zero
+//   invalid pages to reclaim, which is what happens at the default 100%
+//   working set (writes almost never repeat an address, so there's
+//   nothing for GC to usefully collect even once the free-block threshold
+//   is crossed). See the reconfigure-crash-bug writeup's companion
+//   investigation for how this was found.
+// - Stop_Time raised enough to let ~10 GC executions happen (measured via
+//   a native-CLI step-count harness: this config takes ~850k event-groups
+//   to reach Stop_Time, hence the much higher default playback speed
+//   App.tsx uses for this preset - see useSimulationPlayback's
+//   ticksMultiplier).
+export function buildGcWorkloadXml(params: SsdParams): string {
+  return `<?xml version="1.0" encoding="us-ascii"?>
+<MQSim_IO_Scenarios>
+	<IO_Scenario>
+		<IO_Flow_Parameter_Set_Synthetic>
+			<Priority_Class>HIGH</Priority_Class>
+			<Device_Level_Data_Caching_Mode>WRITE_CACHE</Device_Level_Data_Caching_Mode>
+			<Channel_IDs>0</Channel_IDs>
+			<Chip_IDs>0</Chip_IDs>
+			<Die_IDs>0</Die_IDs>
+			<Plane_IDs>0</Plane_IDs>
+			<Initial_Occupancy_Percentage>0</Initial_Occupancy_Percentage>
+			<Working_Set_Percentage>25</Working_Set_Percentage>
+			<Synthetic_Generator_Type>QUEUE_DEPTH</Synthetic_Generator_Type>
+			<Read_Percentage>0</Read_Percentage>
+			<Address_Distribution>RANDOM_UNIFORM</Address_Distribution>
+			<Percentage_of_Hot_Region>0</Percentage_of_Hot_Region>
+			<Generated_Aligned_Addresses>true</Generated_Aligned_Addresses>
+			<Address_Alignment_Unit>${params.pageNoPerBlock}</Address_Alignment_Unit>
+			<Request_Size_Distribution>FIXED</Request_Size_Distribution>
+			<Average_Request_Size>8</Average_Request_Size>
+			<Variance_Request_Size>0</Variance_Request_Size>
+			<Seed>798</Seed>
+			<Average_No_of_Reqs_in_Queue>4</Average_No_of_Reqs_in_Queue>
+			<Intensity>32768</Intensity>
+			<Stop_Time>2500000000</Stop_Time>
+			<Total_Requests_To_Generate>1000000</Total_Requests_To_Generate>
+		</IO_Flow_Parameter_Set_Synthetic>
+	</IO_Scenario>
+</MQSim_IO_Scenarios>
+`;
+}

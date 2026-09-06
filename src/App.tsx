@@ -8,7 +8,13 @@ import { StatsPanel } from './components/StatsPanel';
 import { Toolbar } from './components/Toolbar';
 import { WearLevelingView } from './components/WearLevelingView';
 import { presets } from './data/presets';
-import { buildMappingWorkloadXml, buildSsdConfigXml, DEFAULT_MAPPING_PARAMS } from './data/mqsimConfigs';
+import {
+  buildGcWorkloadXml,
+  buildMappingWorkloadXml,
+  buildSsdConfigXml,
+  DEFAULT_GC_PARAMS,
+  DEFAULT_MAPPING_PARAMS,
+} from './data/mqsimConfigs';
 import type { SsdParams } from './data/mqsimConfigs';
 import { useMqsimEngine } from './hooks/useMqsimEngine';
 import { useMqsimEvents } from './hooks/useMqsimEvents';
@@ -22,16 +28,47 @@ import type { PresetId } from './types';
 // on every slider-drag tick) - see the effect below.
 const PARAM_APPLY_DEBOUNCE_MS = 400;
 
+// "GC 시연"'s workload needs ~850k event-groups to reach its first GC
+// (measured via a native step-count harness - see buildGcWorkloadXml's doc
+// comment) versus "매핑 기본"'s few dozen, so it gets a much larger
+// per-speed-unit multiplier. Only presets with a real engine config need an
+// entry here; anything else defaults to 1 in useSimulationPlayback.
+const TICKS_MULTIPLIER: Partial<Record<PresetId, number>> = {
+  gc: 5000,
+};
+
+// Presets wired to the real WASM engine so far - each needs its own
+// SsdParams (block/page counts, GC threshold, ...) since "GC 시연"
+// deliberately uses a much higher GC_Exec_Threshold and a narrower
+// workload working-set than "매핑 기본" (see mqsimConfigs.ts). Presets not
+// listed here (마모평준화 시연) still show static mock data - static wear-
+// leveling was never confirmed to actually trigger within a reasonable
+// run even in dedicated testing (see the wl-bug-deviation writeup), so
+// wiring it for real is deferred rather than shipped half-working.
+const WIRED_PRESET_DEFAULTS: Partial<Record<PresetId, SsdParams>> = {
+  mapping: DEFAULT_MAPPING_PARAMS,
+  gc: DEFAULT_GC_PARAMS,
+};
+
+function buildWorkloadXmlFor(presetId: PresetId, params: SsdParams): string {
+  return presetId === 'gc' ? buildGcWorkloadXml(params) : buildMappingWorkloadXml(params);
+}
+
 function App() {
   const [activeId, setActiveId] = useState<PresetId>('mapping');
   const active = presets.find((p) => p.id === activeId) ?? presets[0];
 
-  // Only the 'mapping' preset has its own live params for now - GC/WL
-  // presets are still static mock data (see the caption/wired logic
-  // below), so this one SsdParams value is enough until they're wired too.
-  const [params, setParams] = useState<SsdParams>(DEFAULT_MAPPING_PARAMS);
-  const ssdConfigXml = useMemo(() => buildSsdConfigXml(params), [params]);
-  const workloadXml = useMemo(() => buildMappingWorkloadXml(params), [params]);
+  const [paramsByPreset, setParamsByPreset] = useState<Record<string, SsdParams>>({
+    mapping: DEFAULT_MAPPING_PARAMS,
+    gc: DEFAULT_GC_PARAMS,
+  });
+  // Whichever wired preset is active drives the one live engine instance;
+  // presets not in WIRED_PRESET_DEFAULTS just keep it configured for
+  // 'mapping' in the background (harmless - its data isn't shown for them).
+  const configKey: PresetId = WIRED_PRESET_DEFAULTS[activeId] ? activeId : 'mapping';
+  const activeParams = paramsByPreset[configKey];
+  const ssdConfigXml = useMemo(() => buildSsdConfigXml(activeParams), [activeParams]);
+  const workloadXml = useMemo(() => buildWorkloadXmlFor(configKey, activeParams), [configKey, activeParams]);
 
   const engine = useMqsimEngine(ssdConfigXml, workloadXml);
   const events = useMqsimEvents(engine.subscribeEvents, engine.ready);
@@ -39,18 +76,19 @@ function App() {
     engine,
     onRefresh: engine.refresh,
     onRestart: events.reset,
+    ticksMultiplier: TICKS_MULTIPLIER[activeId] ?? 1,
   });
 
-  // Reconfigures the engine with the latest params - restart() already
-  // does exactly this (it calls engine.configure(), which closes over the
-  // current ssdConfigXml/workloadXml) plus resets playback/event state, so
-  // a param change is handled identically to pressing ⏮. Skips the very
-  // first run since useMqsimEngine's own init() already applied these same
-  // default params.
-  const isFirstParamsRenderRef = useRef(true);
+  // Reconfigures the engine whenever the active preset's params (or the
+  // preset itself) change - restart() already does exactly this (it calls
+  // engine.configure(), which closes over the current ssdConfigXml/
+  // workloadXml) plus resets playback/event state, so this is handled
+  // identically to pressing ⏮. Skips the very first run since
+  // useMqsimEngine's own init() already applied these same default params.
+  const isFirstConfigRenderRef = useRef(true);
   useEffect(() => {
-    if (isFirstParamsRenderRef.current) {
-      isFirstParamsRenderRef.current = false;
+    if (isFirstConfigRenderRef.current) {
+      isFirstConfigRenderRef.current = false;
       return;
     }
     if (!engine.ready) return;
@@ -59,12 +97,9 @@ function App() {
     }, PARAM_APPLY_DEBOUNCE_MS);
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params, engine.ready]);
+  }, [ssdConfigXml, workloadXml, engine.ready]);
 
-  // Only the 'mapping' preset is wired to the real WASM engine so far - the
-  // other presets still show static mock data until their own future work
-  // lands.
-  const wired = activeId === 'mapping' && engine.ready;
+  const wired = Boolean(WIRED_PRESET_DEFAULTS[activeId]) && engine.ready;
   const mappingRows = wired ? toMappingRows(engine.state) : active.mapping;
   const blockRows = wired ? toBlockRows(engine.state) : active.blocks;
   const statItems = wired ? toStatItems(engine.state, events.counters) : active.stats;
@@ -78,8 +113,8 @@ function App() {
       <header className="sim-app-header">
         <h1>FTL Visual Simulator</h1>
         <p>
-          &apos;매핑 기본&apos; 프리셋은 실제 MQSim WASM 엔진과 연동되어 있어요 - 재생 버튼으로
-          시뮬레이션을 진행해보세요. 다른 프리셋은 아직 정적 목업입니다.
+          &apos;매핑 기본&apos;·&apos;GC 시연&apos; 프리셋은 실제 MQSim WASM 엔진과 연동되어 있어요 -
+          재생 버튼으로 시뮬레이션을 진행해보세요. &apos;마모평준화 시연&apos;은 아직 정적 목업입니다.
         </p>
         <p style={{ fontSize: '0.85em', opacity: 0.8 }}>
           엔진 상태 (개발용): {engine.error ? `오류 - ${engine.error}` : engine.ready ? '준비 완료' : '로딩 중...'}
@@ -106,7 +141,11 @@ function App() {
           {active.wearRows && <WearLevelingView rows={active.wearRows} caption={caption} />}
           <div className="sim-sidebar">
             <MappingTable rows={mappingRows} />
-            <ParamPanel params={params} onChange={setParams} disabled={!wired} />
+            <ParamPanel
+              params={activeParams}
+              onChange={(next) => setParamsByPreset((prev) => ({ ...prev, [configKey]: next }))}
+              disabled={!wired}
+            />
             <StatsPanel stats={statItems} />
           </div>
         </div>
