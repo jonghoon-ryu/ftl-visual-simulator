@@ -105,6 +105,38 @@ export function buildSsdConfigXml(params: SsdParams): string {
 `;
 }
 
+// Session 10: the workload generator knobs the plan calls "sequential/
+// random, read/write 비율, burst 크기" - independent of SsdParams (device
+// geometry) and layered on top of each preset's own tuned Working_Set/
+// Stop_Time/Total_Requests values below, the same way ParamPanel's SsdParams
+// layer on top of a fixed base config.
+export interface WorkloadParams {
+  // MQSim's Utils::Address_Distribution_Type - only these two are exposed
+  // ("sequential"/"random"); MIXED_STREAMING_RANDOM and RANDOM_HOTCOLD are
+  // real modes but outside the plan's beginner-facing two-way toggle.
+  addressDistribution: 'RANDOM_UNIFORM' | 'STREAMING';
+  // 0-80, not 0-100: verified via native CLI that Read_Percentage=99 (and
+  // 100) hangs the simulator outright - reading an LPA that has *never*
+  // been written yet (unavoidable at the very start of a fresh device, and
+  // increasingly likely near 100% reads) sends MQSim into an infinite loop
+  // rather than an error. 95-98 still completed in testing, but the exact
+  // boundary depends on RNG/seed interaction with the specific geometry, so
+  // 80 keeps a comfortable safety margin (same margin philosophy as
+  // MIN_BLOCK_NO_PER_PLANE in ParamPanel.tsx).
+  readPercentage: number;
+  // Average_Request_Size in pages, 1-64 (matches ParamPanel's Page 당 Page
+  // 개수 max) - verified via native CLI up to 64 pages/request with no new
+  // deadlock (large bursts just take longer per request, self-limiting
+  // throughput rather than exhausting the free-block pool early).
+  burstSize: number;
+}
+
+export const DEFAULT_WORKLOAD_PARAMS: WorkloadParams = {
+  addressDistribution: 'RANDOM_UNIFORM',
+  readPercentage: 0,
+  burstSize: 8,
+};
+
 // One small synthetic write-heavy flow - enough requests to populate the
 // mapping table visibly within a couple of steps, small enough to run
 // instantly. Stop_Time/Total_Requests_To_Generate both bound it (belt and
@@ -112,7 +144,7 @@ export function buildSsdConfigXml(params: SsdParams): string {
 // generator, but both are set here in case that varies by config).
 // Address_Alignment_Unit tracks pageNoPerBlock so a write still lands on
 // exactly one page regardless of the chosen block/page geometry.
-export function buildMappingWorkloadXml(params: SsdParams): string {
+export function buildMappingWorkloadXml(params: SsdParams, workload: WorkloadParams = DEFAULT_WORKLOAD_PARAMS): string {
   return `<?xml version="1.0" encoding="us-ascii"?>
 <MQSim_IO_Scenarios>
 	<IO_Scenario>
@@ -126,13 +158,13 @@ export function buildMappingWorkloadXml(params: SsdParams): string {
 			<Initial_Occupancy_Percentage>0</Initial_Occupancy_Percentage>
 			<Working_Set_Percentage>100</Working_Set_Percentage>
 			<Synthetic_Generator_Type>QUEUE_DEPTH</Synthetic_Generator_Type>
-			<Read_Percentage>0</Read_Percentage>
-			<Address_Distribution>RANDOM_UNIFORM</Address_Distribution>
+			<Read_Percentage>${workload.readPercentage}</Read_Percentage>
+			<Address_Distribution>${workload.addressDistribution}</Address_Distribution>
 			<Percentage_of_Hot_Region>0</Percentage_of_Hot_Region>
 			<Generated_Aligned_Addresses>true</Generated_Aligned_Addresses>
 			<Address_Alignment_Unit>${params.pageNoPerBlock}</Address_Alignment_Unit>
 			<Request_Size_Distribution>FIXED</Request_Size_Distribution>
-			<Average_Request_Size>8</Average_Request_Size>
+			<Average_Request_Size>${workload.burstSize}</Average_Request_Size>
 			<Variance_Request_Size>0</Variance_Request_Size>
 			<Seed>798</Seed>
 			<Average_No_of_Reqs_in_Queue>4</Average_No_of_Reqs_in_Queue>
@@ -175,7 +207,7 @@ export const DEFAULT_GC_PARAMS: SsdParams = {
 //   to reach Stop_Time, hence the much higher default playback speed
 //   App.tsx uses for this preset - see useSimulationPlayback's
 //   ticksMultiplier).
-export function buildGcWorkloadXml(params: SsdParams): string {
+export function buildGcWorkloadXml(params: SsdParams, workload: WorkloadParams = DEFAULT_WORKLOAD_PARAMS): string {
   return `<?xml version="1.0" encoding="us-ascii"?>
 <MQSim_IO_Scenarios>
 	<IO_Scenario>
@@ -189,13 +221,13 @@ export function buildGcWorkloadXml(params: SsdParams): string {
 			<Initial_Occupancy_Percentage>0</Initial_Occupancy_Percentage>
 			<Working_Set_Percentage>25</Working_Set_Percentage>
 			<Synthetic_Generator_Type>QUEUE_DEPTH</Synthetic_Generator_Type>
-			<Read_Percentage>0</Read_Percentage>
-			<Address_Distribution>RANDOM_UNIFORM</Address_Distribution>
+			<Read_Percentage>${workload.readPercentage}</Read_Percentage>
+			<Address_Distribution>${workload.addressDistribution}</Address_Distribution>
 			<Percentage_of_Hot_Region>0</Percentage_of_Hot_Region>
 			<Generated_Aligned_Addresses>true</Generated_Aligned_Addresses>
 			<Address_Alignment_Unit>${params.pageNoPerBlock}</Address_Alignment_Unit>
 			<Request_Size_Distribution>FIXED</Request_Size_Distribution>
-			<Average_Request_Size>8</Average_Request_Size>
+			<Average_Request_Size>${workload.burstSize}</Average_Request_Size>
 			<Variance_Request_Size>0</Variance_Request_Size>
 			<Seed>798</Seed>
 			<Average_No_of_Reqs_in_Queue>4</Average_No_of_Reqs_in_Queue>

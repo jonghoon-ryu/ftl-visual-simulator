@@ -7,6 +7,7 @@ import { ParamPanel } from './components/ParamPanel';
 import { StatsPanel } from './components/StatsPanel';
 import { Toolbar } from './components/Toolbar';
 import { WearLevelingView } from './components/WearLevelingView';
+import { WorkloadPanel } from './components/WorkloadPanel';
 import { presets } from './data/presets';
 import {
   buildGcWorkloadXml,
@@ -14,8 +15,9 @@ import {
   buildSsdConfigXml,
   DEFAULT_GC_PARAMS,
   DEFAULT_MAPPING_PARAMS,
+  DEFAULT_WORKLOAD_PARAMS,
 } from './data/mqsimConfigs';
-import type { SsdParams } from './data/mqsimConfigs';
+import type { SsdParams, WorkloadParams } from './data/mqsimConfigs';
 import { useMqsimEngine } from './hooks/useMqsimEngine';
 import { useMqsimEvents } from './hooks/useMqsimEvents';
 import { useSimulationPlayback } from './hooks/useSimulationPlayback';
@@ -50,8 +52,8 @@ const WIRED_PRESET_DEFAULTS: Partial<Record<PresetId, SsdParams>> = {
   gc: DEFAULT_GC_PARAMS,
 };
 
-function buildWorkloadXmlFor(presetId: PresetId, params: SsdParams): string {
-  return presetId === 'gc' ? buildGcWorkloadXml(params) : buildMappingWorkloadXml(params);
+function buildWorkloadXmlFor(presetId: PresetId, params: SsdParams, workload: WorkloadParams): string {
+  return presetId === 'gc' ? buildGcWorkloadXml(params, workload) : buildMappingWorkloadXml(params, workload);
 }
 
 function App() {
@@ -62,13 +64,26 @@ function App() {
     mapping: DEFAULT_MAPPING_PARAMS,
     gc: DEFAULT_GC_PARAMS,
   });
+  // Session 10: workload generator knobs (sequential/random, read/write
+  // 비율, burst 크기), independent of SsdParams and keyed per-preset the
+  // same way - both wired presets start from the same DEFAULT_WORKLOAD_
+  // PARAMS since that's exactly what their tuned Working_Set_Percentage/
+  // Stop_Time values (mqsimConfigs.ts) were verified against.
+  const [workloadByPreset, setWorkloadByPreset] = useState<Record<string, WorkloadParams>>({
+    mapping: DEFAULT_WORKLOAD_PARAMS,
+    gc: DEFAULT_WORKLOAD_PARAMS,
+  });
   // Whichever wired preset is active drives the one live engine instance;
   // presets not in WIRED_PRESET_DEFAULTS just keep it configured for
   // 'mapping' in the background (harmless - its data isn't shown for them).
   const configKey: PresetId = WIRED_PRESET_DEFAULTS[activeId] ? activeId : 'mapping';
   const activeParams = paramsByPreset[configKey];
+  const activeWorkload = workloadByPreset[configKey];
   const ssdConfigXml = useMemo(() => buildSsdConfigXml(activeParams), [activeParams]);
-  const workloadXml = useMemo(() => buildWorkloadXmlFor(configKey, activeParams), [configKey, activeParams]);
+  const workloadXml = useMemo(
+    () => buildWorkloadXmlFor(configKey, activeParams, activeWorkload),
+    [configKey, activeParams, activeWorkload],
+  );
 
   const engine = useMqsimEngine(ssdConfigXml, workloadXml);
   const events = useMqsimEvents(engine.subscribeEvents, engine.ready);
@@ -166,6 +181,11 @@ function App() {
             <ParamPanel
               params={activeParams}
               onChange={(next) => setParamsByPreset((prev) => ({ ...prev, [configKey]: next }))}
+              disabled={!wired}
+            />
+            <WorkloadPanel
+              workload={activeWorkload}
+              onChange={(next) => setWorkloadByPreset((prev) => ({ ...prev, [configKey]: next }))}
               disabled={!wired}
             />
             <StatsPanel stats={statItems} />
