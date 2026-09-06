@@ -138,6 +138,37 @@ namespace
 		payload.set("block", address_to_val(event.Block_address));
 		g_event_callback(payload);
 	}
+
+	// Fires continuously (every write-frontier rotation) - see the comment
+	// on Dynamic_WL_Block_Allocated_Event in Simulation_Events.h. Far more
+	// frequent than the GC_*/WL_* events above; the UI layer is expected to
+	// throttle/sample these itself if needed rather than this layer doing it.
+	void forward_dynamic_wl_block_allocated(const Simulation_Events::Dynamic_WL_Block_Allocated_Event& event)
+	{
+		if (g_event_callback.isUndefined() || g_event_callback.isNull()) {
+			return;
+		}
+		val payload = val::object();
+		payload.set("type", std::string("dynamic_wl_block_allocated"));
+		payload.set("streamId", event.Stream_id);
+		payload.set("block", address_to_val(event.Block_address));
+		payload.set("eraseCount", event.Erase_count);
+		payload.set("forMappingData", event.For_mapping_data);
+		g_event_callback(payload);
+	}
+
+	void forward_dynamic_wl_block_freed(const Simulation_Events::Dynamic_WL_Block_Freed_Event& event)
+	{
+		if (g_event_callback.isUndefined() || g_event_callback.isNull()) {
+			return;
+		}
+		val payload = val::object();
+		payload.set("type", std::string("dynamic_wl_block_freed"));
+		payload.set("block", address_to_val(event.Block_address));
+		payload.set("eraseCount", event.Erase_count);
+		payload.set("dynamicWlConsidered", event.Dynamic_wl_considered);
+		g_event_callback(payload);
+	}
 }
 
 // Writes the given config/workload XML text into MEMFS at the paths MQSim's
@@ -158,6 +189,8 @@ void init(const std::string& ssd_config_xml, const std::string& workload_xml)
 	Simulation_Events::On_wl_started = forward_wl_started;
 	Simulation_Events::On_wl_page_migrated = forward_wl_page_migrated;
 	Simulation_Events::On_wl_block_erased = forward_wl_block_erased;
+	Simulation_Events::On_dynamic_wl_block_allocated = forward_dynamic_wl_block_allocated;
+	Simulation_Events::On_dynamic_wl_block_freed = forward_dynamic_wl_block_freed;
 
 	teardown_current();
 
@@ -169,10 +202,12 @@ void init(const std::string& ssd_config_xml, const std::string& workload_xml)
 }
 
 // Registers the JS function that receives simulation events - mapping
-// updates, GC activity (gc_started/gc_page_migrated/gc_block_erased), and
+// updates, GC activity (gc_started/gc_page_migrated/gc_block_erased),
 // static wear-leveling activity (wl_started/wl_page_migrated/
-// wl_block_erased) - as they happen during step()/run(). Pass undefined/
-// null to stop receiving events.
+// wl_block_erased), and dynamic wear-leveling activity
+// (dynamic_wl_block_allocated/dynamic_wl_block_freed - fire far more often
+// than the others, see Simulation_Events.h) - as they happen during
+// step()/run(). Pass undefined/null to stop receiving events.
 void set_event_callback(val callback)
 {
 	g_event_callback = callback;

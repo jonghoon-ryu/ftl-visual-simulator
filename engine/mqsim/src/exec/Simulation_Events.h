@@ -157,6 +157,52 @@ namespace Simulation_Events
 			On_wl_block_erased(event);
 		}
 	}
+
+	// Dynamic wear-leveling isn't a discrete "runs occasionally" mechanism
+	// like GC/static WL above - it's baked into every single free-block
+	// pick: PlaneBookKeepingType::Get_a_free_block() always hands out
+	// whichever free block has the lowest Erase_count (see
+	// Add_to_free_block_pool(), which keys the free-block multimap by
+	// Erase_count when Dynamic_Wearleveling_Enabled is on, or by a constant
+	// 0 - i.e. plain FIFO - when it's off). So these two fire continuously,
+	// on every write-frontier rotation and every block returning to the
+	// free pool, regardless of whether dynamic WL is actually enabled -
+	// Dynamic_wl_considered on the freed event tells a consumer whether
+	// this particular return-to-pool was erase-count-ordered or not.
+	struct Dynamic_WL_Block_Allocated_Event
+	{
+		stream_id_type Stream_id;
+		NVM::FlashMemory::Physical_Page_Address Block_address;
+		unsigned int Erase_count;
+		bool For_mapping_data; // true: became a translation-page write frontier
+	};
+
+	extern void (*On_dynamic_wl_block_allocated)(const Dynamic_WL_Block_Allocated_Event&);
+
+	inline void Notify_dynamic_wl_block_allocated(stream_id_type stream_id, const NVM::FlashMemory::Physical_Page_Address& block_address, unsigned int erase_count, bool for_mapping_data)
+	{
+		if (On_dynamic_wl_block_allocated) {
+			Dynamic_WL_Block_Allocated_Event event{ stream_id, block_address, erase_count, for_mapping_data };
+			On_dynamic_wl_block_allocated(event);
+		}
+	}
+
+	struct Dynamic_WL_Block_Freed_Event
+	{
+		NVM::FlashMemory::Physical_Page_Address Block_address;
+		unsigned int Erase_count;
+		bool Dynamic_wl_considered; // false: inserted FIFO-style (Dynamic_Wearleveling_Enabled is off)
+	};
+
+	extern void (*On_dynamic_wl_block_freed)(const Dynamic_WL_Block_Freed_Event&);
+
+	inline void Notify_dynamic_wl_block_freed(const NVM::FlashMemory::Physical_Page_Address& block_address, unsigned int erase_count, bool dynamic_wl_considered)
+	{
+		if (On_dynamic_wl_block_freed) {
+			Dynamic_WL_Block_Freed_Event event{ block_address, erase_count, dynamic_wl_considered };
+			On_dynamic_wl_block_freed(event);
+		}
+	}
 }
 
 #endif // !SIMULATION_EVENTS_H
