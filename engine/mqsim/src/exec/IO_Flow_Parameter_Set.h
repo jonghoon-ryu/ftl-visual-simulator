@@ -44,8 +44,21 @@ public:
 	unsigned int Variance_Request_Size;//Variance of request size in sectors
 	//Host_Components::Request_Generator_Type Generator_Type;//Request generator could be time-based 
 	int Seed;
-	unsigned int Average_No_of_Reqs_in_Queue;//Average number of I/O requests from this flow in the 
-	unsigned int Bandwidth;//The bandwidth of I/O flow in bytes per second (it should be a multiplication of sector size)
+	unsigned int Average_No_of_Reqs_in_Queue;//Average number of I/O requests from this flow in the
+	// Only meaningful for the BANDWIDTH generator type (see Host_System.cpp's
+	// inter-arrival-time calculation) - XML_deserialize only assigns this
+	// field if a <Bandwidth> tag is present, so a workload.xml written for
+	// the (far more common) QUEUE_DEPTH generator, which has no reason to
+	// specify it, leaves this uninitialized. That's harmless on a fresh
+	// heap allocation (usually zeroed) but not guaranteed - repeatedly
+	// constructing/destroying flow objects (e.g. reconfiguring a live
+	// simulation with new parameters) can hand back a heap block with
+	// nonzero leftover bytes, making Host_System.cpp's "Bandwidth == 0 ?
+	// 0 : ..." check pass a stale nonzero value through to a division whose
+	// intermediate result truncates to zero - a real, if latent, divide-by-
+	// zero. Default-initializing here removes the ambiguity regardless of
+	// which generator type or how many times a scenario gets rebuilt.
+	unsigned int Bandwidth = 0;//The bandwidth of I/O flow in bytes per second (it should be a multiplication of sector size)
 
 	sim_time_type Stop_Time;//Defines when to stop generating I/O requests
 	unsigned int Total_Requests_To_Generate;//If Stop_Time is equal to zero, then requst generator considers Total_Requests_To_Generate to decide when to stop generating I/O requests

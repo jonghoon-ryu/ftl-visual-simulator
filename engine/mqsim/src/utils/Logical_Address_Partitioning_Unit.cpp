@@ -23,6 +23,8 @@ namespace Utils
 	void Logical_Address_Partitioning_Unit::Reset()
 	{
 		initialized = false;
+		total_pda_no = 0;
+		total_lha_no = 0;
 		pdas_per_flow.clear();
 		start_lhas_per_flow.clear();
 		end_lhas_per_flow.clear();
