@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { LogEntry } from '../types';
+import type { MqsimEngine } from './useMqsimEngine';
 
 const MAX_LOG_ENTRIES = 50;
 
@@ -48,15 +49,15 @@ function describeEvent(event: MqsimEvent): string | null {
   }
 }
 
-// Registers module.setEventCallback() and turns the raw event stream into
-// (a) a capped, human-readable log for EventLog.tsx and (b) exact
-// host-write/read counters for StatsPanel.tsx's WAF calculation.
-// mapping_updated fires exactly once per logical page the host touches -
-// the same page granularity as Stats::IssuedProgramCMD (the flash-side
-// write count getState().stats exposes) - so counting it here is the
-// correct WAF denominator, unlike a raw host I/O-request count (one
+// Subscribes to the worker-forwarded event stream (see useMqsimEngine's
+// subscribeEvents) and turns it into (a) a capped, human-readable log for
+// EventLog.tsx and (b) exact host-write/read counters for StatsPanel.tsx's
+// WAF calculation. mapping_updated fires exactly once per logical page the
+// host touches - the same page granularity as Stats::IssuedProgramCMD (the
+// flash-side write count getState().stats exposes) - so counting it here
+// is the correct WAF denominator, unlike a raw host I/O-request count (one
 // request can span several pages).
-export function useMqsimEvents(module: MqsimModule | null) {
+export function useMqsimEvents(subscribeEvents: MqsimEngine['subscribeEvents'], ready: boolean) {
   const [log, setLog] = useState<LogEntry[]>([]);
   const [counters, setCounters] = useState<SimulationCounters>({ hostWrites: 0, hostReads: 0 });
   const dynamicWlSeenRef = useRef(0);
@@ -68,20 +69,20 @@ export function useMqsimEvents(module: MqsimModule | null) {
   };
 
   useEffect(() => {
-    if (!module) return;
+    if (!ready) return;
 
-    // Reset whenever `module` changes identity (in practice: the one
-    // null->real-module transition on load, see useMqsimEngine). oxlint's
-    // react(set-state-in-effect) rule flags any setState called directly in
-    // an effect body, but React's own "adjusting state on a prop change"
-    // guidance has no lint-clean form when the dependency is a ref/object
-    // rather than a plain prop value already available during render - the
-    // cost here is one extra render on a transition that happens once.
+    // Reset whenever the engine becomes ready (in practice: once, on
+    // load - see useMqsimEngine). oxlint's react(set-state-in-effect) rule
+    // flags any setState called directly in an effect body, but React's
+    // own "adjusting state on a prop change" guidance has no lint-clean
+    // form when the dependency is a ref/object rather than a plain prop
+    // value already available during render - the cost here is one extra
+    // render on a transition that happens once.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     // oxlint-disable-next-line react/set-state-in-effect
     reset();
 
-    module.setEventCallback((event) => {
+    return subscribeEvents((event) => {
       if (event.type === 'mapping_updated') {
         setCounters((prev) =>
           event.isWrite ? { ...prev, hostWrites: prev.hostWrites + 1 } : { ...prev, hostReads: prev.hostReads + 1 },
@@ -101,9 +102,7 @@ export function useMqsimEvents(module: MqsimModule | null) {
       const time = new Date().toLocaleTimeString('ko-KR', { hour12: false });
       setLog((prev) => [{ time, text }, ...prev].slice(0, MAX_LOG_ENTRIES));
     });
-
-    return () => module.setEventCallback(null);
-  }, [module]);
+  }, [subscribeEvents, ready]);
 
   return { log, counters, reset };
 }

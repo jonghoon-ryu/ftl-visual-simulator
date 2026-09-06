@@ -1,52 +1,119 @@
-import { useCallback, useEffect, useState } from 'react';
-import createMQSimModule from '../wasm-build/mqsim.mjs';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
-// Loads the WASM-compiled MQSim engine once and initializes it with the
-// given config/workload XML text (see src/data/mqsimConfigs.ts). Slice 1 of
-// the Session 7 WASM-wiring plan - see the ftl_visual_simulator_project
-// memory note for the full slice list if picking this back up later.
-//
-// Deliberately no "already initialized" ref guard here: React StrictMode
-// (main.tsx) runs this effect mount -> cleanup -> mount once in dev, and a
-// guard that skips the second mount interacts badly with the first mount's
-// `cancelled` flag (set true by its own cleanup) silently discarding the
-// real result once the async work resolves - it looked exactly like the
-// module just hung forever with zero errors anywhere. Calling init() twice
-// is harmless (it tears down and rebuilds - see bindings.cpp's init()), so
-// just let both mounts run; only the second (uncancelled) one's result
-// actually gets applied.
+// Runs the actual WASM module in a dedicated Web Worker (src/workers/
+// mqsim.worker.ts) - per the plan's Session 8 spec ("WASM 실행을 Web
+// Worker 로 돌리고") - so a long step()/run() call can never block React's
+// rendering or input handling on the main thread. Communication is a
+// small promise-based RPC over postMessage; every call here is therefore
+// async, unlike the pre-worker version that called into the module
+// directly.
+type PendingEntry = { resolve: (value: unknown) => void; reject: (err: Error) => void };
+
+interface WorkerResponse {
+  id?: number;
+  ok?: boolean;
+  result?: unknown;
+  error?: string;
+  type?: 'event';
+  payload?: MqsimEvent;
+}
+
 export function useMqsimEngine(ssdConfigXml: string, workloadXml: string) {
-  const [module, setModule] = useState<MqsimModule | null>(null);
+  const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [state, setState] = useState<MqsimState | null>(null);
 
+  const workerRef = useRef<Worker | null>(null);
+  const nextIdRef = useRef(1);
+  const pendingRef = useRef(new Map<number, PendingEntry>());
+  const eventListenersRef = useRef(new Set<(event: MqsimEvent) => void>());
+
+  // Reads workerRef.current at *call* time, not at effect-mount time - so
+  // callers made after a React StrictMode remount (which terminates the
+  // first worker and spins up a second) always reach the current worker
+  // rather than a stale, already-terminated one.
+  const call = useCallback(<T,>(req: Record<string, unknown>): Promise<T> => {
+    const worker = workerRef.current;
+    if (!worker) return Promise.reject(new Error('워커가 아직 준비되지 않았습니다'));
+    return new Promise<T>((resolve, reject) => {
+      const id = nextIdRef.current++;
+      pendingRef.current.set(id, { resolve: resolve as (value: unknown) => void, reject });
+      worker.postMessage({ id, ...req });
+    });
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
-    createMQSimModule()
-      .then((mod) => {
+    const worker = new Worker(new URL('../workers/mqsim.worker.ts', import.meta.url), { type: 'module' });
+    workerRef.current = worker;
+
+    worker.onmessage = (e: MessageEvent<WorkerResponse>) => {
+      const msg = e.data;
+      if (msg.type === 'event') {
+        if (msg.payload) {
+          eventListenersRef.current.forEach((cb) => cb(msg.payload!));
+        }
+        return;
+      }
+      if (msg.id === undefined) return;
+      const pending = pendingRef.current.get(msg.id);
+      if (!pending) return;
+      pendingRef.current.delete(msg.id);
+      if (msg.ok) pending.resolve(msg.result);
+      else pending.reject(new Error(msg.error ?? '알 수 없는 워커 오류'));
+    };
+
+    call({ type: 'init', ssdConfigXml, workloadXml })
+      .then(() => {
         if (cancelled) return;
-        mod.init(ssdConfigXml, workloadXml);
-        setModule(mod);
-        setState(mod.getState());
+        setReady(true);
       })
-      .catch((err: unknown) => {
+      .catch((err: Error) => {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : String(err));
+        setError(err.message);
       });
 
     return () => {
       cancelled = true;
+      worker.terminate();
+      if (workerRef.current === worker) {
+        workerRef.current = null;
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const step = useCallback(() => call<boolean>({ type: 'step' }), [call]);
+  const run = useCallback((n: number) => call<boolean>({ type: 'run', n }), [call]);
+  const configure = useCallback(
+    () => call<void>({ type: 'configure', ssdConfigXml, workloadXml }),
+    [call, ssdConfigXml, workloadXml],
+  );
+
   // Re-reads getState() and stores it - call after step()/run() so the UI
   // reflects the new point-in-time snapshot. Not called automatically on a
-  // timer: playback controls (Session 7 Slice 4) own when the sim advances.
-  const refresh = useCallback(() => {
-    if (!module) return;
-    setState(module.getState());
-  }, [module]);
+  // timer: playback controls (useSimulationPlayback) own when the sim
+  // advances.
+  const refresh = useCallback(async () => {
+    const nextState = await call<MqsimState>({ type: 'getState' });
+    setState(nextState);
+  }, [call]);
 
-  return { module, error, ready: module !== null, state, refresh };
+  useEffect(() => {
+    if (ready) {
+      void refresh();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready]);
+
+  const subscribeEvents = useCallback((cb: (event: MqsimEvent) => void) => {
+    eventListenersRef.current.add(cb);
+    return () => {
+      eventListenersRef.current.delete(cb);
+    };
+  }, []);
+
+  return { ready, error, state, refresh, step, run, configure, subscribeEvents };
 }
+
+export type MqsimEngine = ReturnType<typeof useMqsimEngine>;

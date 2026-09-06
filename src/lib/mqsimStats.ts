@@ -10,13 +10,38 @@ export function toStatItems(state: MqsimState | null, counters: SimulationCounte
   const issuedProgramCmd = state?.stats.issuedProgramCmd ?? 0;
   const waf = counters.hostWrites === 0 ? null : issuedProgramCmd / counters.hostWrites;
 
+  // Both derived straight from the block snapshot already in state.blocks -
+  // no separate engine export needed (unlike WAF/gcExecutions/wlExecutions,
+  // which only the engine's own Stats:: counters know).
+  let totalPages = 0;
+  let validPages = 0;
+  let totalEraseCount = 0;
+  for (const block of state?.blocks ?? []) {
+    totalEraseCount += block.eraseCount;
+    for (const page of block.pages) {
+      totalPages++;
+      if (page === 'valid') validPages++;
+    }
+  }
+  const validPageRatio = totalPages === 0 ? null : validPages / totalPages;
+
   return [
     {
       label: 'WAF',
       value: waf === null ? '-' : `${waf.toFixed(2)}×`,
       hint: waf === null ? '아직 쓰기가 없어요' : '1 번 쓰려고 실제로는 몇 번 write 했는지 - 낮을수록 좋음',
     },
+    {
+      label: 'Valid page 비율',
+      value: validPageRatio === null ? '-' : `${Math.round(validPageRatio * 100)}%`,
+      hint: '전체 페이지 중 아직 쓸모있는(valid) 비율 - 낮을수록 GC 가 정리할 게 많다는 뜻',
+    },
     { label: 'GC 실행 횟수', value: String(state?.stats.gcExecutions ?? 0) },
     { label: 'WL 실행 횟수', value: String(state?.stats.wlExecutions ?? 0) },
+    {
+      label: 'Erase 횟수',
+      value: String(totalEraseCount),
+      hint: '블록이 지워진 총 횟수 - 너무 자주 지워지면 flash 수명이 빨리 닳아요',
+    },
   ];
 }
