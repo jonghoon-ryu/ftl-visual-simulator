@@ -1,0 +1,22 @@
+import type { StatItem } from '../types';
+import type { SimulationCounters } from '../hooks/useMqsimEvents';
+
+// WAF (Write Amplification Factor) = flash-side page writes / host-side
+// page writes. issuedProgramCmd already counts every physical page program
+// (user writes + GC/WL copy-writes); hostWrites (from useMqsimEvents) counts
+// only host-triggered logical page writes - see that hook's doc comment for
+// why it's the right denominator instead of a raw request count.
+export function toStatItems(state: MqsimState | null, counters: SimulationCounters): StatItem[] {
+  const issuedProgramCmd = state?.stats.issuedProgramCmd ?? 0;
+  const waf = counters.hostWrites === 0 ? null : issuedProgramCmd / counters.hostWrites;
+
+  return [
+    {
+      label: 'WAF',
+      value: waf === null ? '-' : `${waf.toFixed(2)}×`,
+      hint: waf === null ? '아직 쓰기가 없어요' : '1 번 쓰려고 실제로는 몇 번 write 했는지 - 낮을수록 좋음',
+    },
+    { label: 'GC 실행 횟수', value: String(state?.stats.gcExecutions ?? 0) },
+    { label: 'WL 실행 횟수', value: String(state?.stats.wlExecutions ?? 0) },
+  ];
+}

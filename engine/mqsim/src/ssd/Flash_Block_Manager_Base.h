@@ -25,7 +25,28 @@ namespace SSD_Components
 	* 5: GC_USER -> GC
 	*/
 	enum class Block_Service_Status {IDLE, GC_WL, USER, GC_USER, GC_UWAIT, GC_USER_UWAIT};
-	
+
+	// Per-page state as seen by a UI snapshot - derived from Current_page_
+	// write_index (free vs written) and Invalid_page_bitmap (valid vs
+	// invalid) rather than tracked as its own field. There is deliberately
+	// no "currently migrating" state here: GC/WL page moves are transient
+	// (a handful of in-flight transactions), not bookkeeping this class
+	// keeps per-page - a UI wanting that has to derive it from the
+	// gc_page_migrated/wl_page_migrated event stream instead (see
+	// Simulation_Events.h), not from a point-in-time snapshot.
+	enum class Block_Page_State { FREE, VALID, INVALID };
+
+	// One block's point-in-time state for Flash_Block_Manager_Base::Get_
+	// block_state_snapshot() (the engine-side data source behind the WASM
+	// getState() export's "blocks" field).
+	struct Block_Snapshot_Entry
+	{
+		NVM::FlashMemory::Physical_Page_Address Address; // PageID is unused (0)
+		unsigned int EraseCount;
+		Block_Service_Status Status;
+		std::vector<Block_Page_State> Pages; // size == pages_no_per_block
+	};
+
 	class Block_Pool_Slot_Type
 	{
 	public:
@@ -90,6 +111,13 @@ namespace SSD_Components
 		virtual void Add_erased_block_to_pool(const NVM::FlashMemory::Physical_Page_Address& address) = 0;
 		virtual unsigned int Get_pool_size(const NVM::FlashMemory::Physical_Page_Address& plane_address) = 0;
 		flash_block_ID_type Get_coldest_block_id(const NVM::FlashMemory::Physical_Page_Address& plane_address);
+		// Point-in-time state of every block on the device (all channels/
+		// chips/dies/planes) - the data source behind the WASM getState()
+		// export's "blocks" field. Not scoped to one plane like the other
+		// Get_*() helpers here since a UI wants the whole flash array at
+		// once; cheap for the small geometries this project's UI presets
+		// use (see mqsimConfigs.ts).
+		std::vector<Block_Snapshot_Entry> Get_block_state_snapshot();
 		unsigned int Get_min_max_erase_difference(const NVM::FlashMemory::Physical_Page_Address& plane_address);
 		void Set_GC_and_WL_Unit(GC_and_WL_Unit_Base* );
 		PlaneBookKeepingType* Get_plane_bookkeeping_entry(const NVM::FlashMemory::Physical_Page_Address& plane_address);

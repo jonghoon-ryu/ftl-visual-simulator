@@ -192,6 +192,44 @@ namespace SSD_Components
 		return &(plane_manager[plane_address.ChannelID][plane_address.ChipID][plane_address.DieID][plane_address.PlaneID]);
 	}
 
+	std::vector<Block_Snapshot_Entry> Flash_Block_Manager_Base::Get_block_state_snapshot()
+	{
+		std::vector<Block_Snapshot_Entry> snapshot;
+		snapshot.reserve((size_t)channel_count * chip_no_per_channel * die_no_per_chip * plane_no_per_die * block_no_per_plane);
+
+		for (unsigned int channel = 0; channel < channel_count; channel++) {
+			for (unsigned int chip = 0; chip < chip_no_per_channel; chip++) {
+				for (unsigned int die = 0; die < die_no_per_chip; die++) {
+					for (unsigned int plane = 0; plane < plane_no_per_die; plane++) {
+						PlaneBookKeepingType* plane_record = &plane_manager[channel][chip][die][plane];
+						for (unsigned int block = 0; block < block_no_per_plane; block++) {
+							Block_Pool_Slot_Type& slot = plane_record->Blocks[block];
+
+							Block_Snapshot_Entry entry;
+							entry.Address = NVM::FlashMemory::Physical_Page_Address(
+								(flash_channel_ID_type)channel, (flash_chip_ID_type)chip, (flash_die_ID_type)die,
+								(flash_plane_ID_type)plane, (flash_block_ID_type)block);
+							entry.EraseCount = slot.Erase_count;
+							entry.Status = slot.Current_status;
+							entry.Pages.reserve(pages_no_per_block);
+							for (unsigned int page = 0; page < pages_no_per_block; page++) {
+								if (page >= (unsigned int)slot.Current_page_write_index) {
+									entry.Pages.push_back(Block_Page_State::FREE);
+								} else {
+									bool is_invalid = (slot.Invalid_page_bitmap[page / 64] & (((uint64_t)1) << page)) != 0;
+									entry.Pages.push_back(is_invalid ? Block_Page_State::INVALID : Block_Page_State::VALID);
+								}
+							}
+							snapshot.push_back(std::move(entry));
+						}
+					}
+				}
+			}
+		}
+
+		return snapshot;
+	}
+
 	bool Flash_Block_Manager_Base::Block_has_ongoing_gc_wl(const NVM::FlashMemory::Physical_Page_Address& block_address)
 	{
 		PlaneBookKeepingType *plane_record = &plane_manager[block_address.ChannelID][block_address.ChipID][block_address.DieID][block_address.PlaneID];

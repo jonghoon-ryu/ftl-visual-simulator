@@ -508,7 +508,11 @@ namespace SSD_Components
 				// the eviction call sites in this file).
 				ppa = domain->GlobalMappingTable[lpa].PPA;
 			}
-			snapshot.push_back(Mapping_Snapshot_Entry{ lpa, ppa, ppa != NO_PPA });
+			Mapping_Snapshot_Entry row{ lpa, ppa, ppa != NO_PPA, NVM::FlashMemory::Physical_Page_Address() };
+			if (row.Mapped) {
+				Convert_ppa_to_address(ppa, row.Address);
+			}
+			snapshot.push_back(row);
 		}
 		return snapshot;
 	}
@@ -629,7 +633,7 @@ namespace SSD_Components
 			Convert_ppa_to_address(transaction->PPA, transaction->Address);
 			block_manager->Read_transaction_issued(transaction->Address);
 			transaction->Physical_address_determined = true;
-			Simulation_Events::Notify_mapping_updated(streamID, transaction->LPA, transaction->PPA, false);
+			Simulation_Events::Notify_mapping_updated(streamID, transaction->LPA, transaction->PPA, false, transaction->Address);
 
 			return true;
 		} else {//This is a write transaction
@@ -640,7 +644,7 @@ namespace SSD_Components
 			}
 			allocate_page_in_plane_for_user_write((NVM_Transaction_Flash_WR*)transaction, false);
 			transaction->Physical_address_determined = true;
-			Simulation_Events::Notify_mapping_updated(streamID, transaction->LPA, transaction->PPA, true);
+			Simulation_Events::Notify_mapping_updated(streamID, transaction->LPA, transaction->PPA, true, transaction->Address);
 
 			return true;
 		}

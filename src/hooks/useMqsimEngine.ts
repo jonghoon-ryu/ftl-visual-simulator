@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import createMQSimModule from '../wasm-build/mqsim.mjs';
 
 // Loads the WASM-compiled MQSim engine once and initializes it with the
@@ -18,6 +18,7 @@ import createMQSimModule from '../wasm-build/mqsim.mjs';
 export function useMqsimEngine(ssdConfigXml: string, workloadXml: string) {
   const [module, setModule] = useState<MqsimModule | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [state, setState] = useState<MqsimState | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -26,6 +27,7 @@ export function useMqsimEngine(ssdConfigXml: string, workloadXml: string) {
         if (cancelled) return;
         mod.init(ssdConfigXml, workloadXml);
         setModule(mod);
+        setState(mod.getState());
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -38,5 +40,13 @@ export function useMqsimEngine(ssdConfigXml: string, workloadXml: string) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return { module, error, ready: module !== null };
+  // Re-reads getState() and stores it - call after step()/run() so the UI
+  // reflects the new point-in-time snapshot. Not called automatically on a
+  // timer: playback controls (Session 7 Slice 4) own when the sim advances.
+  const refresh = useCallback(() => {
+    if (!module) return;
+    setState(module.getState());
+  }, [module]);
+
+  return { module, error, ready: module !== null, state, refresh };
 }

@@ -49,6 +49,10 @@ namespace SSD_Components
 		LPA_type Lpa;
 		PPA_type Ppa;
 		bool Mapped; // false if this LPA has never been written
+		// Only meaningful when Mapped is true - decomposed here (rather than
+		// left to the WASM bindings layer) since Convert_ppa_to_address()
+		// needs the AMU's own channel/chip/die/plane/block geometry.
+		NVM::FlashMemory::Physical_Page_Address Address;
 	};
 	
 	class Cached_Mapping_Table
