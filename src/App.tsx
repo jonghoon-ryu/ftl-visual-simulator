@@ -176,10 +176,13 @@ function App() {
         <div className="sim-body">
           {blockRows && <FlashGrid blocks={blockRows} caption={caption} />}
           {active.wearRows && <WearLevelingView rows={active.wearRows} caption={caption} />}
-          {/* Only 매핑 기본/GC 시연 have mapping rows (마모평준화 시연's preset
-              data has an empty mapping array) - this column only takes up
-              space when there's actually a table to show. */}
-          {mappingRows.length > 0 && (
+          {/* Only 매핑 기본/GC 시연 have a mapping table at all (마모평준화
+              시연 never does) - keyed off which presets are wired, not off
+              whether mappingRows currently has anything in it, so the
+              column (and its "재생을 눌러보세요" empty state) stays visible
+              from the moment the preset is selected, not just after the
+              first write actually lands. */}
+          {WIRED_PRESET_DEFAULTS[activeId] && (
             <div className="sim-mapping-col">
               <MappingTable rows={mappingRows} />
             </div>

@@ -29,7 +29,7 @@ export function FlashGrid({ blocks, caption }: Props) {
       <div className="sim-panel-title">Flash Array — Block × Page</div>
       <div className="sim-caption">{caption}</div>
       <div className="grid-row grid-header-row">
-        <div className="row-label" />
+        <div className="row-label">Page</div>
         <div className="row-cells">
           {Array.from({ length: pageCount }, (_, i) => (
             <div key={i} className="cell cell-header">
