@@ -85,13 +85,35 @@ function App() {
   // workloadXml) plus resets playback/event state, so this is handled
   // identically to pressing ⏮. Skips the very first run since
   // useMqsimEngine's own init() already applied these same default params.
+  //
+  // Preset switches reconfigure IMMEDIATELY (no debounce) - `wired` (and
+  // so the Toolbar's disabled state) flips true the instant activeId
+  // changes, in the same render, well before this effect can even run.
+  // Debouncing a preset switch left a real window where pressing play
+  // would start running against the *previous* preset's still-loaded
+  // config, only to be silently paused and reset once the debounced
+  // restart() finally fired - looked exactly like "pressed play, it just
+  // stopped" for "GC 시연" if you didn't wait ~400ms before pressing play.
+  // Only a same-preset param edit (a slider drag) still needs debouncing,
+  // to avoid reconfiguring on every intermediate drag value.
+  const prevConfigKeyRef = useRef(configKey);
   const isFirstConfigRenderRef = useRef(true);
   useEffect(() => {
     if (isFirstConfigRenderRef.current) {
       isFirstConfigRenderRef.current = false;
+      prevConfigKeyRef.current = configKey;
       return;
     }
     if (!engine.ready) return;
+
+    const presetSwitched = prevConfigKeyRef.current !== configKey;
+    prevConfigKeyRef.current = configKey;
+
+    if (presetSwitched) {
+      void playback.restart();
+      return;
+    }
+
     const id = setTimeout(() => {
       void playback.restart();
     }, PARAM_APPLY_DEBOUNCE_MS);
