@@ -39,6 +39,12 @@ namespace SSD_Components
 		stream_id_type Stream_id = NO_STREAM;
 		bool Holds_mapping_data = false;
 		bool Has_ongoing_gc_wl = false;
+		// Which of GC vs static wear-leveling parked this block for erase -
+		// set right before GC_WL_started() is called (false in Check_gc_
+		// required(), true in run_static_wearleveling()), read back at the
+		// deferred-execution/erase-completion call sites in GC_and_WL_Unit_
+		// Base.cpp to fire the right Simulation_Events GC_*/WL_* event.
+		bool Is_wl_triggered = false;
 		NVM_Transaction_Flash_ER* Erase_transaction;
 		bool Hot_block = false;//Used for hot/cold separation mentioned in the "On the necessity of hot and cold data identification to reduce the write amplification in flash-based SSDs", Perf. Eval., 2014.
 		int Ongoing_user_read_count;

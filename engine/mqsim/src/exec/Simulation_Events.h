@@ -39,17 +39,18 @@ namespace Simulation_Events
 	// "was blocked on an in-flight request, now clear to run" deferred path
 	// (GC_and_WL_Unit_Base::handle_transaction_serviced_signal_from_PHY).
 	//
-	// Accuracy note: that deferred path is shared with static wear-leveling
-	// (run_static_wearleveling() also parks a block the same way when it
-	// can't run immediately) and MQSim itself does not track which of the
-	// two triggered a given deferred execution - Stats::Total_gc_executions
-	// gets incremented there unconditionally, regardless of which one
-	// started it. This hook matches that same ground truth (that is what
-	// makes "hook count == Stats::Total_gc_executions" a valid check at
-	// all), so a small, rare fraction of "gc_started" events may actually be
-	// a deferred static-WL erase. Revisit if Session 6's WL hooks need exact
-	// attribution - a trigger-reason tag would need adding on the block/
-	// transaction at the point it was first parked.
+	// GC and static wear-leveling (see the WL_* events below) share that
+	// deferred path and MQSim itself does not track which of the two parked
+	// a given block there - Stats::Total_gc_executions gets incremented
+	// unconditionally regardless. This project distinguishes them with the
+	// Is_wl_triggered flag added to Block_Pool_Slot_Type (Flash_Block_
+	// Manager_Base.h) - set to true right before a block is parked in
+	// run_static_wearleveling(), false right before Check_gc_required()
+	// parks one, and read back at the deferred-path/erase-completion call
+	// sites to pick GC_* vs WL_* events. Stats::Total_gc_executions itself
+	// is left as-is (still conflates the two), since it's part of MQSim's
+	// own reported results and this project never changes simulation output
+	// - see engine/tests/golden/ and run-regression-tests.sh.
 	struct GC_Started_Event
 	{
 		stream_id_type Stream_id;
@@ -102,6 +103,58 @@ namespace Simulation_Events
 		if (On_gc_block_erased) {
 			GC_Block_Erased_Event event{ block_address };
 			On_gc_block_erased(event);
+		}
+	}
+
+	// Static wear-leveling counterparts of the three GC_* events above -
+	// same shape, fired instead of the GC_* one whenever
+	// Block_Pool_Slot_Type::Is_wl_triggered is true for the block in
+	// question. See run_static_wearleveling() (GC_and_WL_Unit_Base.cpp),
+	// the only place that ever sets that flag to true.
+	struct WL_Started_Event
+	{
+		stream_id_type Stream_id;
+		NVM::FlashMemory::Physical_Page_Address Block_address;
+	};
+
+	extern void (*On_wl_started)(const WL_Started_Event&);
+
+	inline void Notify_wl_started(stream_id_type stream_id, const NVM::FlashMemory::Physical_Page_Address& block_address)
+	{
+		if (On_wl_started) {
+			WL_Started_Event event{ stream_id, block_address };
+			On_wl_started(event);
+		}
+	}
+
+	struct WL_Page_Migrated_Event
+	{
+		stream_id_type Stream_id;
+		NVM::FlashMemory::Physical_Page_Address Page_address;
+	};
+
+	extern void (*On_wl_page_migrated)(const WL_Page_Migrated_Event&);
+
+	inline void Notify_wl_page_migrated(stream_id_type stream_id, const NVM::FlashMemory::Physical_Page_Address& page_address)
+	{
+		if (On_wl_page_migrated) {
+			WL_Page_Migrated_Event event{ stream_id, page_address };
+			On_wl_page_migrated(event);
+		}
+	}
+
+	struct WL_Block_Erased_Event
+	{
+		NVM::FlashMemory::Physical_Page_Address Block_address;
+	};
+
+	extern void (*On_wl_block_erased)(const WL_Block_Erased_Event&);
+
+	inline void Notify_wl_block_erased(const NVM::FlashMemory::Physical_Page_Address& block_address)
+	{
+		if (On_wl_block_erased) {
+			WL_Block_Erased_Event event{ block_address };
+			On_wl_block_erased(event);
 		}
 	}
 }

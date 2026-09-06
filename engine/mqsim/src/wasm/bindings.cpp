@@ -101,6 +101,43 @@ namespace
 		payload.set("block", address_to_val(event.Block_address));
 		g_event_callback(payload);
 	}
+
+	void forward_wl_started(const Simulation_Events::WL_Started_Event& event)
+	{
+		if (g_event_callback.isUndefined() || g_event_callback.isNull()) {
+			return;
+		}
+		val payload = val::object();
+		payload.set("type", std::string("wl_started"));
+		payload.set("streamId", event.Stream_id);
+		payload.set("block", address_to_val(event.Block_address));
+		g_event_callback(payload);
+	}
+
+	void forward_wl_page_migrated(const Simulation_Events::WL_Page_Migrated_Event& event)
+	{
+		if (g_event_callback.isUndefined() || g_event_callback.isNull()) {
+			return;
+		}
+		val payload = val::object();
+		payload.set("type", std::string("wl_page_migrated"));
+		payload.set("streamId", event.Stream_id);
+		val block = address_to_val(event.Page_address);
+		block.set("page", event.Page_address.PageID);
+		payload.set("block", block);
+		g_event_callback(payload);
+	}
+
+	void forward_wl_block_erased(const Simulation_Events::WL_Block_Erased_Event& event)
+	{
+		if (g_event_callback.isUndefined() || g_event_callback.isNull()) {
+			return;
+		}
+		val payload = val::object();
+		payload.set("type", std::string("wl_block_erased"));
+		payload.set("block", address_to_val(event.Block_address));
+		g_event_callback(payload);
+	}
 }
 
 // Writes the given config/workload XML text into MEMFS at the paths MQSim's
@@ -118,6 +155,9 @@ void init(const std::string& ssd_config_xml, const std::string& workload_xml)
 	Simulation_Events::On_gc_started = forward_gc_started;
 	Simulation_Events::On_gc_page_migrated = forward_gc_page_migrated;
 	Simulation_Events::On_gc_block_erased = forward_gc_block_erased;
+	Simulation_Events::On_wl_started = forward_wl_started;
+	Simulation_Events::On_wl_page_migrated = forward_wl_page_migrated;
+	Simulation_Events::On_wl_block_erased = forward_wl_block_erased;
 
 	teardown_current();
 
@@ -129,9 +169,10 @@ void init(const std::string& ssd_config_xml, const std::string& workload_xml)
 }
 
 // Registers the JS function that receives simulation events - mapping
-// updates (forward_mapping_updated) and GC activity (forward_gc_started/
-// forward_gc_page_migrated/forward_gc_block_erased) - as they happen during
-// step()/run(). Pass undefined/null to stop receiving events.
+// updates, GC activity (gc_started/gc_page_migrated/gc_block_erased), and
+// static wear-leveling activity (wl_started/wl_page_migrated/
+// wl_block_erased) - as they happen during step()/run(). Pass undefined/
+// null to stop receiving events.
 void set_event_callback(val callback)
 {
 	g_event_callback = callback;

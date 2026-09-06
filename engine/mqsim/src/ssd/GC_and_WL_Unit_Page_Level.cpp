@@ -146,6 +146,7 @@ namespace SSD_Components
 			}
 			
 			//Run the state machine to protect against race condition
+			block->Is_wl_triggered = false;
 			block_manager->GC_WL_started(gc_candidate_address);
 			pbke->Ongoing_erase_operations.insert(gc_candidate_block_id);
 			address_mapping_unit->Set_barrier_for_accessing_physical_block(gc_candidate_address);//Lock the block, so no user request can intervene while the GC is progressing

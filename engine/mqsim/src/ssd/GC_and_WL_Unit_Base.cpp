@@ -63,8 +63,13 @@ namespace SSD_Components
 					if (_my_instance->block_manager->Can_execute_gc_wl(transaction->Address)) {
 						NVM::FlashMemory::Physical_Page_Address gc_wl_candidate_address(transaction->Address);
 						Block_Pool_Slot_Type* block = &pbke->Blocks[transaction->Address.BlockID];
+						bool is_wl = block->Is_wl_triggered;
 						Stats::Total_gc_executions++;
-						Simulation_Events::Notify_gc_started(block->Stream_id, gc_wl_candidate_address);
+						if (is_wl) {
+							Simulation_Events::Notify_wl_started(block->Stream_id, gc_wl_candidate_address);
+						} else {
+							Simulation_Events::Notify_gc_started(block->Stream_id, gc_wl_candidate_address);
+						}
 						_my_instance->tsu->Prepare_for_transaction_submit();
 						NVM_Transaction_Flash_ER* gc_wl_erase_tr = new NVM_Transaction_Flash_ER(Transaction_Source_Type::GC_WL, block->Stream_id, gc_wl_candidate_address);
 						
@@ -77,7 +82,11 @@ namespace SSD_Components
 								if (_my_instance->block_manager->Is_page_valid(block, pageID)) {
 									Stats::Total_page_movements_for_gc++;
 									gc_wl_candidate_address.PageID = pageID;
-									Simulation_Events::Notify_gc_page_migrated(block->Stream_id, gc_wl_candidate_address);
+									if (is_wl) {
+										Simulation_Events::Notify_wl_page_migrated(block->Stream_id, gc_wl_candidate_address);
+									} else {
+										Simulation_Events::Notify_gc_page_migrated(block->Stream_id, gc_wl_candidate_address);
+									}
 									if (_my_instance->use_copyback) {
 										gc_wl_write = new NVM_Transaction_Flash_WR(Transaction_Source_Type::GC_WL, block->Stream_id, _my_instance->sector_no_per_page * SECTOR_SIZE_IN_BYTE,
 											NO_LPA, _my_instance->address_mapping_unit->Convert_address_to_ppa(gc_wl_candidate_address), NULL, 0, NULL, 0, INVALID_TIME_STAMP);
@@ -154,7 +163,11 @@ namespace SSD_Components
 				pbke->Blocks[((NVM_Transaction_Flash_WR*)transaction)->RelatedErase->Address.BlockID].Erase_transaction->Page_movement_activities.remove((NVM_Transaction_Flash_WR*)transaction);
 				break;
 			case Transaction_Type::ERASE:
-				Simulation_Events::Notify_gc_block_erased(transaction->Address);
+				if (pbke->Blocks[transaction->Address.BlockID].Is_wl_triggered) {
+					Simulation_Events::Notify_wl_block_erased(transaction->Address);
+				} else {
+					Simulation_Events::Notify_gc_block_erased(transaction->Address);
+				}
 				pbke->Ongoing_erase_operations.erase(pbke->Ongoing_erase_operations.find(transaction->Address.BlockID));
 				_my_instance->block_manager->Add_erased_block_to_pool(transaction->Address);
 				_my_instance->block_manager->GC_WL_finished(transaction->Address);
@@ -264,11 +277,13 @@ namespace SSD_Components
 		Block_Pool_Slot_Type* block = &pbke->Blocks[wl_candidate_block_id];
 
 		//Run the state machine to protect against race condition
+		block->Is_wl_triggered = true;
 		block_manager->GC_WL_started(wl_candidate_address);
 		pbke->Ongoing_erase_operations.insert(wl_candidate_block_id);
 		address_mapping_unit->Set_barrier_for_accessing_physical_block(wl_candidate_address);//Lock the block, so no user request can intervene while the GC is progressing
 		if (block_manager->Can_execute_gc_wl(wl_candidate_address)) {//If there are ongoing requests targeting the candidate block, the gc execution should be postponed
 			Stats::Total_wl_executions++;
+			Simulation_Events::Notify_wl_started(block->Stream_id, wl_candidate_address);
 			tsu->Prepare_for_transaction_submit();
 
 			NVM_Transaction_Flash_ER* wl_erase_tr = new NVM_Transaction_Flash_ER(Transaction_Source_Type::GC_WL, pbke->Blocks[wl_candidate_block_id].Stream_id, wl_candidate_address);
@@ -279,6 +294,7 @@ namespace SSD_Components
 					if (block_manager->Is_page_valid(block, pageID)) {
 						Stats::Total_page_movements_for_gc++;
 						wl_candidate_address.PageID = pageID;
+						Simulation_Events::Notify_wl_page_migrated(block->Stream_id, wl_candidate_address);
 						if (use_copyback) {
 							wl_write = new NVM_Transaction_Flash_WR(Transaction_Source_Type::GC_WL, block->Stream_id, sector_no_per_page * SECTOR_SIZE_IN_BYTE,
 								NO_LPA, address_mapping_unit->Convert_address_to_ppa(wl_candidate_address), NULL, 0, NULL, 0, INVALID_TIME_STAMP);
