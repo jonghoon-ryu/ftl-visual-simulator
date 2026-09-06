@@ -1,5 +1,5 @@
 .sim-app {
-  max-width: 960px;
+  max-width: 1320px;
   margin: 0 auto;
   padding: 32px 16px 64px;
 }
@@ -150,6 +150,18 @@
 .cell.free { background: #383c4d; color: #383c4d; }
 .cell.moving { background: #f5b942; }
 
+.grid-header-row {
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid #33374a;
+}
+
+.cell-header {
+  background: transparent;
+  color: #7d8296;
+  font-weight: 500;
+}
+
 .sim-legend {
   display: flex;
   flex-wrap: wrap;
@@ -176,6 +188,20 @@
 .swatch.invalid { background: #f16d75; }
 .swatch.free { background: #383c4d; }
 .swatch.moving { background: #f5b942; }
+
+/* Sits between the flash grid and the param/workload/stats sidebar for the
+   two wired presets ("매핑 기본"·"GC 시연") - a fixed-ish width column
+   rather than flex-growing, since a mini-table doesn't benefit from extra
+   horizontal space the way the block grid does. */
+.sim-mapping-col {
+  flex: 1 1 280px;
+  max-width: 320px;
+  border-right: 1px solid #33374a;
+}
+
+.sim-mapping-col .sim-panel {
+  border-bottom: none;
+}
 
 .sim-sidebar {
   flex: 1 1 260px;

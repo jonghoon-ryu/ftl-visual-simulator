@@ -30,7 +30,7 @@ import type { PresetId } from './types';
 // on every slider-drag tick) - see the effect below.
 const PARAM_APPLY_DEBOUNCE_MS = 400;
 
-// "GC 시연"'s workload needs ~850k event-groups to reach its first GC
+// "GC 시연"'s workload needs ~950k event-groups to reach its first GC
 // (measured via a native step-count harness - see buildGcWorkloadXml's doc
 // comment) versus "매핑 기본"'s few dozen, so it gets a much larger
 // per-speed-unit multiplier. Only presets with a real engine config need an
@@ -176,8 +176,15 @@ function App() {
         <div className="sim-body">
           {blockRows && <FlashGrid blocks={blockRows} caption={caption} />}
           {active.wearRows && <WearLevelingView rows={active.wearRows} caption={caption} />}
+          {/* Only 매핑 기본/GC 시연 have mapping rows (마모평준화 시연's preset
+              data has an empty mapping array) - this column only takes up
+              space when there's actually a table to show. */}
+          {mappingRows.length > 0 && (
+            <div className="sim-mapping-col">
+              <MappingTable rows={mappingRows} />
+            </div>
+          )}
           <div className="sim-sidebar">
-            <MappingTable rows={mappingRows} />
             <ParamPanel
               params={activeParams}
               onChange={(next) => setParamsByPreset((prev) => ({ ...prev, [configKey]: next }))}
