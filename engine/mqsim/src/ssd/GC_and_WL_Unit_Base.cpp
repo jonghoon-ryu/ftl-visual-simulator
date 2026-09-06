@@ -1,4 +1,5 @@
 #include "GC_and_WL_Unit_Base.h"
+#include "../exec/Simulation_Events.h"
 
 namespace SSD_Components
 {
@@ -63,6 +64,7 @@ namespace SSD_Components
 						NVM::FlashMemory::Physical_Page_Address gc_wl_candidate_address(transaction->Address);
 						Block_Pool_Slot_Type* block = &pbke->Blocks[transaction->Address.BlockID];
 						Stats::Total_gc_executions++;
+						Simulation_Events::Notify_gc_started(block->Stream_id, gc_wl_candidate_address);
 						_my_instance->tsu->Prepare_for_transaction_submit();
 						NVM_Transaction_Flash_ER* gc_wl_erase_tr = new NVM_Transaction_Flash_ER(Transaction_Source_Type::GC_WL, block->Stream_id, gc_wl_candidate_address);
 						
@@ -75,6 +77,7 @@ namespace SSD_Components
 								if (_my_instance->block_manager->Is_page_valid(block, pageID)) {
 									Stats::Total_page_movements_for_gc++;
 									gc_wl_candidate_address.PageID = pageID;
+									Simulation_Events::Notify_gc_page_migrated(block->Stream_id, gc_wl_candidate_address);
 									if (_my_instance->use_copyback) {
 										gc_wl_write = new NVM_Transaction_Flash_WR(Transaction_Source_Type::GC_WL, block->Stream_id, _my_instance->sector_no_per_page * SECTOR_SIZE_IN_BYTE,
 											NO_LPA, _my_instance->address_mapping_unit->Convert_address_to_ppa(gc_wl_candidate_address), NULL, 0, NULL, 0, INVALID_TIME_STAMP);
@@ -151,6 +154,7 @@ namespace SSD_Components
 				pbke->Blocks[((NVM_Transaction_Flash_WR*)transaction)->RelatedErase->Address.BlockID].Erase_transaction->Page_movement_activities.remove((NVM_Transaction_Flash_WR*)transaction);
 				break;
 			case Transaction_Type::ERASE:
+				Simulation_Events::Notify_gc_block_erased(transaction->Address);
 				pbke->Ongoing_erase_operations.erase(pbke->Ongoing_erase_operations.find(transaction->Address.BlockID));
 				_my_instance->block_manager->Add_erased_block_to_pool(transaction->Address);
 				_my_instance->block_manager->GC_WL_finished(transaction->Address);

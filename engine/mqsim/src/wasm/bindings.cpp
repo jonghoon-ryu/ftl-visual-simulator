@@ -3,6 +3,7 @@
 #include <string>
 #include "../exec/MQSim_Interface.h"
 #include "../exec/Simulation_Events.h"
+#include "../nvm_chip/flash_memory/Physical_Page_Address.h"
 
 using namespace emscripten;
 
@@ -22,6 +23,17 @@ namespace
 	{
 		std::ofstream out(path.c_str());
 		out << text;
+	}
+
+	val address_to_val(const NVM::FlashMemory::Physical_Page_Address& address)
+	{
+		val obj = val::object();
+		obj.set("channel", address.ChannelID);
+		obj.set("chip", address.ChipID);
+		obj.set("die", address.DieID);
+		obj.set("plane", address.PlaneID);
+		obj.set("block", address.BlockID);
+		return obj;
 	}
 
 	void teardown_current()
@@ -52,6 +64,43 @@ namespace
 		payload.set("isWrite", event.Is_write);
 		g_event_callback(payload);
 	}
+
+	void forward_gc_started(const Simulation_Events::GC_Started_Event& event)
+	{
+		if (g_event_callback.isUndefined() || g_event_callback.isNull()) {
+			return;
+		}
+		val payload = val::object();
+		payload.set("type", std::string("gc_started"));
+		payload.set("streamId", event.Stream_id);
+		payload.set("block", address_to_val(event.Block_address));
+		g_event_callback(payload);
+	}
+
+	void forward_gc_page_migrated(const Simulation_Events::GC_Page_Migrated_Event& event)
+	{
+		if (g_event_callback.isUndefined() || g_event_callback.isNull()) {
+			return;
+		}
+		val payload = val::object();
+		payload.set("type", std::string("gc_page_migrated"));
+		payload.set("streamId", event.Stream_id);
+		val block = address_to_val(event.Page_address);
+		block.set("page", event.Page_address.PageID);
+		payload.set("block", block);
+		g_event_callback(payload);
+	}
+
+	void forward_gc_block_erased(const Simulation_Events::GC_Block_Erased_Event& event)
+	{
+		if (g_event_callback.isUndefined() || g_event_callback.isNull()) {
+			return;
+		}
+		val payload = val::object();
+		payload.set("type", std::string("gc_block_erased"));
+		payload.set("block", address_to_val(event.Block_address));
+		g_event_callback(payload);
+	}
 }
 
 // Writes the given config/workload XML text into MEMFS at the paths MQSim's
@@ -66,6 +115,9 @@ void init(const std::string& ssd_config_xml, const std::string& workload_xml)
 	// it unconditionally on every init() keeps this the one place that
 	// "arms" event delivery, no matter which entry point triggered it.
 	Simulation_Events::On_mapping_updated = forward_mapping_updated;
+	Simulation_Events::On_gc_started = forward_gc_started;
+	Simulation_Events::On_gc_page_migrated = forward_gc_page_migrated;
+	Simulation_Events::On_gc_block_erased = forward_gc_block_erased;
 
 	teardown_current();
 
@@ -76,9 +128,10 @@ void init(const std::string& ssd_config_xml, const std::string& workload_xml)
 	g_instance = MQSim_Interface::Initialize_scenario(g_workload, 1);
 }
 
-// Registers the JS function that receives simulation events (currently just
-// mapping-update notifications - see forward_mapping_updated()) as they
-// happen during step()/run(). Pass undefined/null to stop receiving events.
+// Registers the JS function that receives simulation events - mapping
+// updates (forward_mapping_updated) and GC activity (forward_gc_started/
+// forward_gc_page_migrated/forward_gc_block_erased) - as they happen during
+// step()/run(). Pass undefined/null to stop receiving events.
 void set_event_callback(val callback)
 {
 	g_event_callback = callback;
