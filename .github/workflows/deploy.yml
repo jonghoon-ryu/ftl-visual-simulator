@@ -1,0 +1,62 @@
+name: Deploy to GitHub Pages
+
+# Deliberately pulled forward from its original Session 12 ("최종 테스트,
+# GitHub Pages 배포") slot so every push to main is checkable live, not
+# just the final result - see the "전체 개발 계획" doc for the note on
+# this reorder.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      # Pinned to the exact version this project's engine/mqsim has been
+      # built and verified against locally (see engine/build-wasm.sh).
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 6.0.9
+
+      - name: Build MQSim WASM module
+        run: bash engine/build-wasm.sh
+
+      - name: Build the app
+        run: npm run build
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/deploy-pages@v4
+        id: deployment
