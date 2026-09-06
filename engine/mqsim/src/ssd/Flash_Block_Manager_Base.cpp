@@ -158,7 +158,19 @@ namespace SSD_Components
 			}
 		}
 
-		return max_erased_block - min_erased_block;
+		// DEVIATION FROM UPSTREAM MQSim: the original returned
+		// `max_erased_block - min_erased_block` - the difference of the two
+		// *block indices*, not their erase counts, despite this value being
+		// compared directly against Static_Wearleveling_Threshold. Being an
+		// unsigned subtraction, it could also underflow to ~4 billion
+		// whenever the higher-erase-count block happened to have the lower
+		// index. Net effect: whether static wear-leveling ever triggered
+		// had essentially nothing to do with actual wear imbalance. Fixed
+		// here so the hooks added for this project's visualizer reflect
+		// real wear-leveling behavior - see the "마모 평준화 버그와 의도적
+		// 동작 변경" doc for the full writeup and rationale for diverging
+		// from upstream on this specific point.
+		return plane_record->Blocks[max_erased_block].Erase_count - plane_record->Blocks[min_erased_block].Erase_count;
 	}
 
 	flash_block_ID_type Flash_Block_Manager_Base::Get_coldest_block_id(const NVM::FlashMemory::Physical_Page_Address& plane_address)

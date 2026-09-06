@@ -264,7 +264,7 @@ namespace SSD_Components
 		Block_Pool_Slot_Type* block = &pbke->Blocks[wl_candidate_block_id];
 
 		//Run the state machine to protect against race condition
-		block_manager->GC_WL_started(wl_candidate_block_id);
+		block_manager->GC_WL_started(wl_candidate_address);
 		pbke->Ongoing_erase_operations.insert(wl_candidate_block_id);
 		address_mapping_unit->Set_barrier_for_accessing_physical_block(wl_candidate_address);//Lock the block, so no user request can intervene while the GC is progressing
 		if (block_manager->Can_execute_gc_wl(wl_candidate_address)) {//If there are ongoing requests targeting the candidate block, the gc execution should be postponed
@@ -277,7 +277,7 @@ namespace SSD_Components
 				NVM_Transaction_Flash_WR* wl_write = NULL;
 				for (flash_page_ID_type pageID = 0; pageID < block->Current_page_write_index; pageID++) {
 					if (block_manager->Is_page_valid(block, pageID)) {
-						Stats::Total_page_movements_for_gc;
+						Stats::Total_page_movements_for_gc++;
 						wl_candidate_address.PageID = pageID;
 						if (use_copyback) {
 							wl_write = new NVM_Transaction_Flash_WR(Transaction_Source_Type::GC_WL, block->Stream_id, sector_no_per_page * SECTOR_SIZE_IN_BYTE,
