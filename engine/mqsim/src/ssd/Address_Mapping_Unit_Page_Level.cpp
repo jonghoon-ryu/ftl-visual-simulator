@@ -5,6 +5,7 @@
 #include "Address_Mapping_Unit_Page_Level.h"
 #include "Stats.h"
 #include "../utils/Logical_Address_Partitioning_Unit.h"
+#include "../exec/Simulation_Events.h"
 
 namespace SSD_Components
 {
@@ -48,7 +49,16 @@ namespace SSD_Components
 		assert(it != addressMap.end());
 		assert(it->second->Status == CMTEntryStatus::VALID);
 		lruList.splice(lruList.begin(), lruList, it->second->listPtr);
-		
+
+		return it->second->PPA;
+	}
+
+	PPA_type Cached_Mapping_Table::Peek_ppa(const stream_id_type streamID, const LPA_type lpn) const
+	{
+		LPA_type key = LPN_TO_UNIQUE_KEY(streamID, lpn);
+		auto it = addressMap.find(key);
+		assert(it != addressMap.end());
+		assert(it->second->Status == CMTEntryStatus::VALID);
 		return it->second->PPA;
 	}
 
@@ -477,6 +487,32 @@ namespace SSD_Components
 		return domains[stream_id]->No_of_inserted_entries_in_preconditioning;
 	}
 
+	std::vector<Mapping_Snapshot_Entry> Address_Mapping_Unit_Page_Level::Get_mapping_table_snapshot(stream_id_type stream_id)
+	{
+		AddressMappingDomain* domain = domains[stream_id];
+		std::vector<Mapping_Snapshot_Entry> snapshot;
+		snapshot.reserve((size_t)domain->Total_logical_pages_no);
+
+		for (LPA_type lpa = 0; lpa < domain->Total_logical_pages_no; lpa++) {
+			PPA_type ppa;
+			if (ideal_mapping_table) {
+				ppa = domain->GlobalMappingTable[lpa].PPA;
+			} else if (domain->CMT->Exists(stream_id, lpa)) {
+				// Currently cached - read it without CMT->Retrieve_ppa()'s
+				// LRU-splice side effect, since a UI snapshot must not
+				// change which entry gets evicted next.
+				ppa = domain->CMT->Peek_ppa(stream_id, lpa);
+			} else {
+				// Not cached right now - GlobalMappingTable holds the value
+				// written back the last time this entry was evicted (see
+				// the eviction call sites in this file).
+				ppa = domain->GlobalMappingTable[lpa].PPA;
+			}
+			snapshot.push_back(Mapping_Snapshot_Entry{ lpa, ppa, ppa != NO_PPA });
+		}
+		return snapshot;
+	}
+
 	void Address_Mapping_Unit_Page_Level::Translate_lpa_to_ppa_and_dispatch(const std::list<NVM_Transaction*>& transactionList)
 	{
 		for (std::list<NVM_Transaction*>::const_iterator it = transactionList.begin();
@@ -593,7 +629,8 @@ namespace SSD_Components
 			Convert_ppa_to_address(transaction->PPA, transaction->Address);
 			block_manager->Read_transaction_issued(transaction->Address);
 			transaction->Physical_address_determined = true;
-			
+			Simulation_Events::Notify_mapping_updated(streamID, transaction->LPA, transaction->PPA, false);
+
 			return true;
 		} else {//This is a write transaction
 			allocate_plane_for_user_write((NVM_Transaction_Flash_WR*)transaction);
@@ -603,7 +640,8 @@ namespace SSD_Components
 			}
 			allocate_page_in_plane_for_user_write((NVM_Transaction_Flash_WR*)transaction, false);
 			transaction->Physical_address_determined = true;
-			
+			Simulation_Events::Notify_mapping_updated(streamID, transaction->LPA, transaction->PPA, true);
+
 			return true;
 		}
 	}

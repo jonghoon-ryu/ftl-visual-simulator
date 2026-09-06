@@ -3,6 +3,7 @@
 #include <fstream>
 #include <cstring>
 #include "../ssd/SSD_Defs.h"
+#include "../ssd/FTL.h"
 #include "../sim/Engine.h"
 #include "../utils/rapidxml/rapidxml.hpp"
 #include "../utils/DistributionTypes.h"
@@ -272,6 +273,19 @@ namespace MQSim_Interface
 			cout << "                   - device response time: " << io_flows[stream_id]->Get_device_response_time() << " (us)"
 				<< " end-to-end request delay:" << io_flows[stream_id]->Get_end_to_end_request_delay() << " (us)" << endl;
 		}
+	}
+
+	std::vector<SSD_Components::Mapping_Snapshot_Entry> Get_mapping_table_snapshot(Simulation_Instance* instance, stream_id_type stream_id)
+	{
+		// Firmware is always an FTL* and Address_Mapping_Unit is always an
+		// Address_Mapping_Unit_Page_Level* in this codebase - Hybrid mapping
+		// (the only other Address_Mapping_Unit_Base subclass) is an empty
+		// stub that nothing constructs (see the MQSim overview doc's
+		// accuracy notes).
+		SSD_Components::FTL* ftl = static_cast<SSD_Components::FTL*>(instance->Ssd->Firmware);
+		SSD_Components::Address_Mapping_Unit_Page_Level* amu =
+			static_cast<SSD_Components::Address_Mapping_Unit_Page_Level*>(ftl->Address_Mapping_Unit);
+		return amu->Get_mapping_table_snapshot(stream_id);
 	}
 
 	void Finalize_scenario(Simulation_Instance* instance)
