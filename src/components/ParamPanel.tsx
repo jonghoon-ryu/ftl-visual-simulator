@@ -2,6 +2,17 @@ import type { SsdParams } from '../data/mqsimConfigs';
 
 const PAGE_CAPACITY_OPTIONS: SsdParams['pageCapacityBytes'][] = [4096, 8192, 16384];
 
+// MQSim hardcodes GC_and_WL_Unit_Page_Level's max_ongoing_gc_reqs_per_plane
+// to 10 - it doubles as Stop_servicing_writes()'s hard threshold (free
+// block pool size below this blocks all writes). At <=12 blocks, the free
+// pool dips to/below 10 within the first few writes (frontier blocks alone
+// eat into it), writes get hard-blocked, and GC can't free anything yet
+// (nothing's been overwritten, so there's nothing invalid to reclaim) -
+// a permanent deadlock, confirmed empirically via the native CLI - exactly
+// 13 blocks works, 12 stalls, independent of OP ratio and pages-per-block.
+// 16 keeps a comfortable margin above that.
+const MIN_BLOCK_NO_PER_PLANE = 16;
+
 interface Props {
   params: SsdParams;
   onChange: (next: SsdParams) => void;
@@ -49,7 +60,7 @@ export function ParamPanel({ params, onChange, disabled }: Props) {
         <input
           className="param-slider"
           type="range"
-          min={8}
+          min={MIN_BLOCK_NO_PER_PLANE}
           max={64}
           step={1}
           disabled={disabled}
