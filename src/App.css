@@ -219,21 +219,12 @@
 }
 
 .param-slider {
-  height: 4px;
-  background: #3e4358;
-  border-radius: 2px;
-  position: relative;
+  width: 100%;
+  accent-color: #4a6cf7;
 }
 
-.param-slider::after {
-  content: '';
-  position: absolute;
-  top: -4px;
-  left: var(--pos, 0%);
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: #4a6cf7;
+.param-slider:disabled {
+  opacity: 0.5;
 }
 
 .param-select {
@@ -243,7 +234,23 @@
   color: #d7dae0;
   border-radius: 4px;
   padding: 4px 8px;
-  display: inline-block;
+  width: 100%;
+}
+
+.param-select:disabled {
+  opacity: 0.5;
+}
+
+.param-select option:disabled {
+  color: #5a5f70;
+}
+
+.param-apply-hint {
+  font-size: 10px;
+  color: #7d8296;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #2d3142;
 }
 
 .stat-row {

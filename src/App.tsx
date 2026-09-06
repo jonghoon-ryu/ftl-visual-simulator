@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import './App.css';
 import { EventLog } from './components/EventLog';
 import { FlashGrid } from './components/FlashGrid';
@@ -8,7 +8,8 @@ import { StatsPanel } from './components/StatsPanel';
 import { Toolbar } from './components/Toolbar';
 import { WearLevelingView } from './components/WearLevelingView';
 import { presets } from './data/presets';
-import { mappingBasicSsdConfigXml, mappingBasicWorkloadXml } from './data/mqsimConfigs';
+import { buildMappingWorkloadXml, buildSsdConfigXml, DEFAULT_MAPPING_PARAMS } from './data/mqsimConfigs';
+import type { SsdParams } from './data/mqsimConfigs';
 import { useMqsimEngine } from './hooks/useMqsimEngine';
 import { useMqsimEvents } from './hooks/useMqsimEvents';
 import { useSimulationPlayback } from './hooks/useSimulationPlayback';
@@ -17,10 +18,22 @@ import { toMappingRows } from './lib/mqsimMapping';
 import { toStatItems } from './lib/mqsimStats';
 import type { PresetId } from './types';
 
+// A param change reconfigures the engine on a short debounce (rather than
+// on every slider-drag tick) - see the effect below.
+const PARAM_APPLY_DEBOUNCE_MS = 400;
+
 function App() {
   const [activeId, setActiveId] = useState<PresetId>('mapping');
   const active = presets.find((p) => p.id === activeId) ?? presets[0];
-  const engine = useMqsimEngine(mappingBasicSsdConfigXml, mappingBasicWorkloadXml);
+
+  // Only the 'mapping' preset has its own live params for now - GC/WL
+  // presets are still static mock data (see the caption/wired logic
+  // below), so this one SsdParams value is enough until they're wired too.
+  const [params, setParams] = useState<SsdParams>(DEFAULT_MAPPING_PARAMS);
+  const ssdConfigXml = useMemo(() => buildSsdConfigXml(params), [params]);
+  const workloadXml = useMemo(() => buildMappingWorkloadXml(params), [params]);
+
+  const engine = useMqsimEngine(ssdConfigXml, workloadXml);
   const events = useMqsimEvents(engine.subscribeEvents, engine.ready);
   const playback = useSimulationPlayback({
     engine,
@@ -28,9 +41,29 @@ function App() {
     onRestart: events.reset,
   });
 
-  // Only the 'mapping' preset is wired to the real WASM engine so far (its
-  // config/workload is what useMqsimEngine above loads) - the other presets
-  // still show static mock data until their own future work lands.
+  // Reconfigures the engine with the latest params - restart() already
+  // does exactly this (it calls engine.configure(), which closes over the
+  // current ssdConfigXml/workloadXml) plus resets playback/event state, so
+  // a param change is handled identically to pressing ⏮. Skips the very
+  // first run since useMqsimEngine's own init() already applied these same
+  // default params.
+  const isFirstParamsRenderRef = useRef(true);
+  useEffect(() => {
+    if (isFirstParamsRenderRef.current) {
+      isFirstParamsRenderRef.current = false;
+      return;
+    }
+    if (!engine.ready) return;
+    const id = setTimeout(() => {
+      void playback.restart();
+    }, PARAM_APPLY_DEBOUNCE_MS);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params, engine.ready]);
+
+  // Only the 'mapping' preset is wired to the real WASM engine so far - the
+  // other presets still show static mock data until their own future work
+  // lands.
   const wired = activeId === 'mapping' && engine.ready;
   const mappingRows = wired ? toMappingRows(engine.state) : active.mapping;
   const blockRows = wired ? toBlockRows(engine.state) : active.blocks;
@@ -73,7 +106,7 @@ function App() {
           {active.wearRows && <WearLevelingView rows={active.wearRows} caption={caption} />}
           <div className="sim-sidebar">
             <MappingTable rows={mappingRows} />
-            <ParamPanel params={active.params} />
+            <ParamPanel params={params} onChange={setParams} disabled={!wired} />
             <StatsPanel stats={statItems} />
           </div>
         </div>
