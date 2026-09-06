@@ -126,3 +126,102 @@ TEST_F(StaticWearLevelingTest, HonorsTheThresholdItWasConstructedWith) {
 	TestableGCAndWLUnit strict_unit = MakeUnit(/*static_wl_threshold=*/8);
 	EXPECT_FALSE(strict_unit.check_static_wl_required(plane_address));
 }
+
+// Watching real GC in the browser demo has two problems: the whole run can
+// finish before you register what happened, and the *real* time gap between
+// one write and the next isn't constant (it depends on queue depth, flash
+// program latency, whether a previous request just completed, ...), so
+// there's no consistent rhythm to watch for. This test sidesteps both by
+// driving Check_gc_required() directly, one *write* at a time, with the
+// free-block-pool size as the only thing that changes between steps - no
+// simulated time enters into it at all, so every step is identical in
+// "distance" from the last regardless of what real GC/flash timing would
+// have been.
+class GcTriggerTest : public ::testing::Test {
+protected:
+	static constexpr unsigned int kBlockNoPerPlane = 16;
+	static constexpr unsigned int kPageNoPerBlock = 4;
+	// floor(gc_threshold * kBlockNoPerPlane) = floor(0.5 * 16) = 8, and
+	// max_ongoing_gc_reqs_per_plane below is passed as less than that so the
+	// constructor's "clamp threshold up to at least max_ongoing_gc_reqs_per_
+	// plane" rule (GC_and_WL_Unit_Base.cpp) doesn't override it.
+	static constexpr unsigned int kExpectedThreshold = 8;
+
+	FakeFlashBlockManager fbm{/*gc_and_wl_unit=*/nullptr, /*max_allowed_block_erase_count=*/10000,
+		/*total_concurrent_streams_no=*/1, /*channel_count=*/1, /*chip_no_per_channel=*/1,
+		/*die_no_per_chip=*/1, /*plane_no_per_die=*/1, kBlockNoPerPlane, kPageNoPerBlock};
+	// NiceMock, not MockAddressMappingUnit directly - unlike
+	// StaticWearLevelingTest, nothing here asserts on the AMU's calls (GC
+	// does call Set_barrier_for_accessing_physical_block() as part of
+	// locking its candidate, same as WL does), so a plain mock would print
+	// an "uninteresting call" warning for it on every fire.
+	::testing::NiceMock<MockAddressMappingUnit> amu;
+	FakeTSU tsu{"fake-tsu", nullptr, nullptr, Flash_Scheduling_Type::OUT_OF_ORDER,
+		1, 1, 1, 1, false, false, 0, 0, 0};
+	Physical_Page_Address plane_address;
+
+	TestableGCAndWLUnit MakeUnit() {
+		return TestableGCAndWLUnit("gc-unit", &amu, &fbm, &tsu, /*flash_controller=*/nullptr,
+			GC_Block_Selection_Policy_Type::RGA, /*gc_threshold=*/0.5, /*preemptible_gc_enabled=*/false,
+			/*gc_hard_threshold=*/0.005, /*channel_count=*/1, /*chip_no_per_channel=*/1,
+			/*die_no_per_chip=*/1, /*plane_no_per_die=*/1, kBlockNoPerPlane, kPageNoPerBlock,
+			/*sector_no_per_page=*/8, /*use_copyback=*/false, /*rho=*/0, /*max_ongoing_gc_reqs_per_plane=*/2,
+			/*dynamic_wearleveling_enabled=*/true, /*static_wearleveling_enabled=*/true, /*static_wl_threshold=*/100, /*seed=*/1);
+	}
+
+	// Check_gc_required() bails out immediately (see GC_and_WL_Unit_Page_
+	// Level.cpp's "no invalid page to erase" guard) unless its candidate
+	// block actually has something worth reclaiming - the real demo needed
+	// a narrowed working set to make overwrites (and thus invalid pages)
+	// happen at all (see buildGcWorkloadXml's doc comment). Marking every
+	// non-frontier block as fully written *and* fully invalid sidesteps
+	// that entirely and makes the RGA policy's random candidate draw
+	// irrelevant - whichever block it lands on already qualifies.
+	void MarkAllBlocksFullyInvalid() {
+		PlaneBookKeepingType* plane = fbm.Get_plane_bookkeeping_entry(plane_address);
+		for (unsigned int i = 0; i < kBlockNoPerPlane; i++) {
+			plane->Blocks[i].Current_page_write_index = kPageNoPerBlock;
+			plane->Blocks[i].Invalid_page_count = kPageNoPerBlock;
+			plane->Blocks[i].Invalid_page_bitmap[0] = (uint64_t)0xF; // all 4 pages invalid (bit=1), see Is_page_valid()
+		}
+	}
+};
+
+TEST_F(GcTriggerTest, FiresExactlyWhenFreePoolCrossesThreshold_SteppedByWriteCount) {
+	MarkAllBlocksFullyInvalid();
+	TestableGCAndWLUnit unit = MakeUnit();
+
+	unsigned int gc_before = Stats::Total_gc_executions;
+	bool fired = false;
+	unsigned int fired_at_write_count = 0;
+
+	// One iteration = one write - the free pool shrinks by exactly one per
+	// write, nothing else changes between steps.
+	for (unsigned int writes_done = 1; writes_done <= kBlockNoPerPlane && !fired; writes_done++) {
+		unsigned int free_pool_size = kBlockNoPerPlane - writes_done;
+		unit.Check_gc_required(free_pool_size, plane_address);
+		if (Stats::Total_gc_executions > gc_before) {
+			fired = true;
+			fired_at_write_count = writes_done;
+		}
+	}
+
+	ASSERT_TRUE(fired);
+	// Pool size stays >= threshold (8) through write 8 (pool=8); it first
+	// drops below threshold at write 9 (pool=7) - that's the first write
+	// Check_gc_required's "free_block_pool_size < block_pool_gc_threshold"
+	// condition can be true.
+	EXPECT_EQ(fired_at_write_count, kBlockNoPerPlane - kExpectedThreshold + 1);
+}
+
+TEST_F(GcTriggerTest, NeverFiresWhilePoolStaysAtOrAboveThreshold) {
+	MarkAllBlocksFullyInvalid();
+	TestableGCAndWLUnit unit = MakeUnit();
+
+	unsigned int gc_before = Stats::Total_gc_executions;
+	for (unsigned int free_pool_size = kBlockNoPerPlane; free_pool_size >= kExpectedThreshold; free_pool_size--) {
+		unit.Check_gc_required(free_pool_size, plane_address);
+	}
+
+	EXPECT_EQ(Stats::Total_gc_executions, gc_before);
+}
